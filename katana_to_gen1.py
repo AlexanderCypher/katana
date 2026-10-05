@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-katana_to_gen1.py  (v4)  -  convert BOSS Katana MkII / Gen 3 .tsl patches to Katana Gen 1 (MkI) .tsl
+katana_to_gen1.py  (v5)  -  convert BOSS Katana MkII .tsl patches to Katana Gen 1 (MkI) .tsl
 
 EASIEST WAY TO USE (this one file is all you need):
   Double-click it. A window opens: click "Choose patch files", click "Convert", done.
@@ -11,7 +11,7 @@ The new files are saved next to the originals as "<name> (Gen1).tsl" - import th
 Option (command line only):  --strict-panel   keep only one effect of each pair that shares a button
                              on the Gen 1 amp (Booster/Mod and Delay/FX).
 
-How it works (v3): a MkII .tsl stores each patch as hex byte blocks that are slices of the amp's
+How it works: a MkII .tsl stores each patch as hex byte blocks that are slices of the amp's
 memory map. The script rebuilds that memory image, then copies every parameter it understands
 into a real Gen 1 patch (named parameters), translating values that differ between generations
 (amp voices, booster / effect types, colour slots, EQ, chain order, patch level ...).
@@ -62,9 +62,11 @@ BOOSTER_MAP = {21: 18, 22: 8, 23: 10}                       # HM-2 -> Metal Zone
 BOOSTER_NAMES = {21: "HM-2", 22: "Metal Core", 23: "Centa OD"}
 BOOSTER_UNKNOWN_FALLBACK = 11
 
-GEN1_FX_TYPES = {0, 1, 2, 3, 4, 6, 7, 9, 10, 12, 14, 15, 16, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 31, 35, 36}
-FX_NAMES = {37: "WAH 95E", 38: "DELAY/CHORUS 30", 39: "HEAVY OCTAVE", 40: "PEDAL BEND"}
-FX_PLACEHOLDER = {37: 2, 38: 29, 39: 14, 40: 15}            # nearest Gen 1 type (used for non-active colour slots)
+# Gen 1 firmware 4 / BOSS TONE STUDIO 4.0 lists 37 WAH 95E, 38 DC-30 and 39 HEAVY OCTAVE as MOD/FX types
+GEN1_FX_TYPES = {0, 1, 2, 3, 4, 6, 7, 9, 10, 12, 14, 15, 16, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 31,
+                 35, 36, 37, 38, 39}
+FX_NAMES = {40: "PEDAL BEND"}
+FX_PLACEHOLDER = {40: 15}                                   # nearest Gen 1 type (used for non-active colour slots)
 
 REVERB_MAP = {}   # Gen 1 and MkII number reverb types the same way (0 Amb,1 Room,2 Hall1,3 Hall2,4 Plate,5 Spring,6 Mod) - confirmed from real Gen 1 presets
 
@@ -129,11 +131,12 @@ FX_GROUPS = [
     ("acsim_high", 1), ("acsim_body", 1), ("acsim_low", 1), (None, 1), ("acsim_level", 1),   # MkII: Top, Body, Low, High, Level
     ("phaser90e_script", 1), ("phaser90e_speed", 1),
     ("flanger117e_manual", 1), ("flanger117e_width", 1), ("flanger117e_speed", 1), ("flanger117e_regen", 1),
-    ("@wah95_pedal_pos", 1), ("@wah95_pedal_min", 1), ("@wah95_pedal_max", 1), ("@wah95_effect_level", 1),
-    ("@wah95_direct_mix", 1),
-    (None, 9),                                                                              # DELAY CHORUS 30 (no Gen 1 equivalent)
-    ("@hoc_oct1", 1), ("@hoc_oct2", 1), ("@hoc_direct_mix", 1),
-    (None, 4),                                                                              # PEDAL BEND (no Gen 1 equivalent)
+    ("wah95e_pedal_pos", 1), ("wah95e_pedal_min", 1), ("wah95e_pedal_max", 1), ("wah95e_effect_level", 1),
+    ("wah95e_direct_mix", 1),
+    ("dc30_selector", 1), ("dc30_input_volume", 1), ("dc30_chorus_intensity", 1), ("dc30_echo_repeat_rate", 2),
+    ("dc30_echo_intensity", 1), ("dc30_echo_volume", 1), ("dc30_tone", 1), ("dc30_output", 1),
+    ("heavy_oct_1oct_level", 1), ("heavy_oct_2oct_level", 1), ("heavy_oct_direct_mix", 1),
+    ("@bend_pitch", 1), ("@bend_position", 1), ("@bend_effect_level", 1), ("@bend_direct_mix", 1),  # PEDAL BEND
 ]
 assert sum(n for _, n in FX_GROUPS) == 225
 
@@ -166,6 +169,51 @@ EQ_LAYOUT = (["eq_on_off", "eq_type", "eq_low_cut", "eq_low_gain", "eq_low_mid_f
 
 COLOURS = ("g", "r", "y")
 
+RANGE2 = {"delay_delay_time": (1, 2000), "delay_d1_time": (1, 1000), "delay_d2_time": (1, 1000),
+          "delay2_delay_time": (1, 2000), "delay2_d1_time": (1, 1000), "delay2_d2_time": (1, 1000),
+          "reverb_pre_delay": (0, 500), "dc30_echo_repeat_rate": (40, 600)}   # 2-byte values (BOSS TONE STUDIO limits)
+
+PEDAL_FX_LAYOUT = ["pedal_fx_on_off", "pedal_fx_type", "pedal_fx_wah_type", "pedal_fx_wah_position",
+                   "pedal_fx_wah_pedal_min", "pedal_fx_wah_pedal_max", "pedal_fx_wah_effect_level",
+                   "pedal_fx_wah_direct_mix", "pedal_fx_pedal_bend_pitch", "pedal_fx_pedal_bend_position",
+                   "pedal_fx_pedal_bend_effect_level", "pedal_fx_pedal_bend_direct_mix", "pedal_fx_evh95_position",
+                   "pedal_fx_evh95_pedal_min", "pedal_fx_evh95_pedal_max", "pedal_fx_evh95_effect_level",
+                   "pedal_fx_evh95_direct_mix"]                 # MkII 5:0x50..0x60, same order
+
+CAB_RESONANCE = {1: "Modern", 2: "Deep"}
+
+# Chain block ids (same on both generations)
+CS, LOOP, AMP, CH_B, EQ1, MOD, FX, DLY1, DLY2, REV, EQ2, PDL, FV, NS, NS2, BST, USB, SPLIT, CAB, MERGE = range(20)
+CHAIN_MOVABLE = {PDL, BST, MOD, FX, EQ1, AMP, NS, FV, LOOP, DLY1, DLY2, REV}
+GEN1_CHAIN_TAIL = [CAB, CS, CH_B, EQ2, MERGE, NS2, USB]     # how real Gen 1 patches end the chain
+# MkII "chain pattern" -> blocks before / after the amp (used when the file stores no explicit order).
+# 0-4 and 6 are confirmed from real MkII patches; 5 follows the same pattern.
+MK2_CHAIN_PATTERNS = {0: ([BST], [MOD, FX, DLY1]), 1: ([BST, MOD], [FX, DLY1]), 2: ([BST, MOD, FX], [DLY1]),
+                      3: ([BST, MOD, FX, DLY1], []), 4: ([MOD, BST], [FX, DLY1]), 5: ([MOD, BST, FX], [DLY1]),
+                      6: ([MOD, BST, FX, DLY1], [])}
+
+
+def gen1_chain(src, pattern, eq_pos, c):
+    """Signal chain for Gen 1, laid out the way real Gen 1 patches are:
+    SPLIT, the blocks in use (in the MkII order), then CAB and the unused channel-B blocks."""
+    if sorted(src) == list(range(20)):
+        body = [b for b in src if b in CHAIN_MOVABLE]
+    else:                                   # older MkII files only store the chain pattern number
+        pre, post = MK2_CHAIN_PATTERNS.get(pattern, MK2_CHAIN_PATTERNS[1])
+        if pattern not in MK2_CHAIN_PATTERNS:
+            c.note(f"Unknown MkII chain pattern {pattern}; used Booster/MOD before the amp")
+        eq_in = [EQ1] if eq_pos == 0 else []
+        body = [PDL] + pre + eq_in + [AMP, NS, FV] + ([] if eq_in else [EQ1]) + [LOOP] + post + [DLY2, REV]
+    return [SPLIT] + body + GEN1_CHAIN_TAIL
+
+
+def gen1_chain_ptn(chain):
+    """Nearest Gen 1 chain preset (0: Booster+MOD after amp, 1: before amp, 2: Delay/FX also before amp)."""
+    before = set(chain[:chain.index(AMP)])
+    if BST not in before and MOD not in before:
+        return 0
+    return 2 if {FX, DLY1} <= before else 1
+
 
 # --------------------------------------------------------------------------------------
 class Conv:
@@ -186,7 +234,12 @@ class Conv:
             self.dropped.add(key)
 
     def put2(self, key, hi, lo):
-        self.put(key, hi * 128 + lo)
+        v = hi * 128 + lo
+        lo_lim, hi_lim = RANGE2.get(key.split("_", 1)[1] if key.startswith(("fx1_", "fx2_")) else key, (0, v))
+        if not lo_lim <= v <= hi_lim:                    # damaged value in the source file
+            v = min(max(v, lo_lim), hi_lim)
+            hi, lo = divmod(v, 128)
+        self.put(key, v)
         self.put(key + "_h", hi)
         self.put(key + "_l", lo)
 
@@ -273,7 +326,7 @@ def convert_patch(blocks, tpl_patch):
     c.put("eq_position", eq_pos)
 
     # ---- MOD (FX1) and FX (FX2) -------------------------------------------------------
-    extra = {}
+    bend = []
     for n, page in ((1, 1), (2, 3)):
         a = A(page, 0)
         vals = {}
@@ -290,17 +343,10 @@ def convert_patch(blocks, tpl_patch):
         gtype, ok = fx_type_for_slot(c, typ, on, label)
         c.put(f"fx{n}_fx_type", gtype)
         if not ok and on:
-            if typ == 37:                                   # WAH 95E -> pedal wah
-                for k in ("pedal_pos", "pedal_min", "pedal_max", "effect_level", "direct_mix"):
-                    c.put(f"fx{n}_sub_wah_{k}", vals["@wah95_" + k])
-                c.note(f"{label}: WAH 95E replaced by the Gen 1 Pedal Wah with the same pedal settings")
-            elif typ == 39:                                 # Heavy Octave -> Octave
-                c.put(f"fx{n}_octave_range", 1)
-                c.put(f"fx{n}_octave_level", vals["@hoc_oct1"])
-                c.put(f"fx{n}_octave_direct_mix", vals["@hoc_direct_mix"])
-                c.note(f"{label}: HEAVY OCTAVE replaced by Octave (-1 oct level)")
+            c.put(f"fx{n}_on_off", 0)
+            if typ == 40:                                   # Pedal Bend lives in the Gen 1 Pedal FX block instead
+                bend.append(vals)
             else:
-                c.put(f"fx{n}_on_off", 0)
                 c.note(f"{label}: switched off (no Gen 1 equivalent)")
         for name_, v in vals.items():
             if name_ in ("on_off", "fx_type") or name_.startswith("@"):
@@ -330,6 +376,22 @@ def convert_patch(blocks, tpl_patch):
         c.put("reverb_type", REVERB_MAP[rt])
         c.note("Reverb Hall 1 -> Gen 1 Hall")
 
+    # ---- pedal FX (wah / pedal bend / wah 95E, worked by an expression pedal) ----------
+    for i, key in enumerate(PEDAL_FX_LAYOUT):
+        c.put(key, g(5, 0x50 + i))
+    c.put("pedal_fx_position", g(6, 0x23))
+    if bend:
+        if g(5, 0x50):
+            c.note("Pedal Bend in MOD/FX switched off: the Gen 1 has it only in the Pedal FX slot, which this "
+                   "patch already uses")
+        else:
+            v = bend[0]
+            c.put("pedal_fx_on_off", 1)
+            c.put("pedal_fx_type", 1)
+            for k in ("pitch", "position", "effect_level", "direct_mix"):
+                c.put("pedal_fx_pedal_bend_" + k, v["@bend_" + k])
+            c.note("Pedal Bend moved from MOD/FX to the Gen 1 Pedal FX slot (needs an expression pedal)")
+
     # ---- foot volume, send/return, noise suppressor, patch level ----------------------
     c.put("foot_volume_level", g(5, 0x61))
     c.put("send_return_on_off", g(5, 0x62))
@@ -343,18 +405,15 @@ def convert_patch(blocks, tpl_patch):
     c.put("patch_level", g(5, 0x70))
     c.put("master_key", g(5, 0x71))
 
-    # ---- signal chain order (same block ids on both generations) ------------------------
-    chain = [g(6, i) for i in range(20)]
-    if sorted(chain) == list(range(20)):
-        for i, v in enumerate(chain):
-            c.put(f"fx_chain_position{i+1}", v)
-        cp = {f"position{i+1}": v for i, v in enumerate(chain)}
-        cp["positionList"] = chain
-        if "chainParams" in p:
-            p["chainParams"] = cp
-    else:
-        c.note("chain order in the source looked invalid; left at the template default")
-    c.put("chain_ptn", min(g(6, 0x20), 2))
+    # ---- signal chain order -------------------------------------------------------------
+    chain = gen1_chain([g(6, i) for i in range(20)], g(6, 0x20), g(6, 0x22), c)
+    for i, v in enumerate(chain):
+        c.put(f"fx_chain_position{i+1}", v)
+    cp = {f"position{i+1}": v for i, v in enumerate(chain)}
+    cp["positionList"] = chain
+    if "chainParams" in p:
+        p["chainParams"] = cp
+    c.put("chain_ptn", gen1_chain_ptn(chain))
 
     # ---- colour slots (green / red / yellow) and which one is selected -----------------
     boxes = [("fx1a", 0x24, "Booster"), ("fx1b", 0x27, "MOD"), ("fx2b", 0x2A, "FX"),
@@ -396,6 +455,9 @@ def convert_patch(blocks, tpl_patch):
         c.note(f"Contour {g(6, 0x17) + 1} is ON in the MkII patch - Gen 1 has no Contour (tone will differ)")
     if g(6, 0x14):
         c.note("MkII Solo EQ is ON - Gen 1 has no Solo EQ")
+    if g(6, 0x43) in CAB_RESONANCE:
+        c.note(f"Cab Resonance {CAB_RESONANCE[g(6, 0x43)]} is set in the MkII patch - Gen 1 has no Cab "
+               f"Resonance, so the low end may sound different")
     c.P["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
     return c
 
@@ -433,7 +495,7 @@ def free_name(path):
 
 
 def convert_file(src_path, out_dir=None):
-    """Convert one MkII / Gen 3 .tsl file. Never raises: problems are reported in the Result."""
+    """Convert one MkII .tsl file. Never raises: problems are reported in the Result."""
     res = Result(src_path)
     folder, fname = os.path.split(src_path)
     base = os.path.splitext(fname)[0]
@@ -458,7 +520,12 @@ def convert_file(src_path, out_dir=None):
             return res
         if "data" not in src or "KATANA" not in device.upper():
             res.status = "error"
-            res.message = f"Not a Katana MkII / Gen 3 patch file (found amp type '{device or 'unknown'}')."
+            res.message = f"Not a Katana MkII patch file (found amp type '{device or 'unknown'}')."
+            return res
+        if "GEN3" in device.upper().replace(" ", ""):
+            res.status = "error"
+            res.message = ("This is a Katana Gen 3 patch file. Gen 3 stores patches in a different layout that "
+                           "this converter can not read yet - only MkII files can be converted.")
             return res
 
         tpl = load_template()
@@ -469,8 +536,8 @@ def convert_file(src_path, out_dir=None):
         used_ids = set()
         rev = str(src.get("formatRev", ""))
         extra = []
-        if rev and rev != "0002":
-            extra.append(f"File format revision {rev} has not been tested (the MkII format is 0002). "
+        if rev and rev not in ("0001", "0002"):
+            extra.append(f"File format revision {rev} has not been tested (MkII files are 0001 or 0002). "
                          f"Please listen carefully to this patch.")
         k = 0
         for liveset in src["data"]:
@@ -536,8 +603,7 @@ def run_batch(files, out_dir=None):
 # Simple window (tkinter ships with the normal Windows / Mac Python installer)
 # --------------------------------------------------------------------------------------
 HELP_TEXT = (
-    "1. Click 'Choose patch files' and pick the .tsl file(s) you downloaded for a newer Katana "
-    "(MkII or Gen 3).\n"
+    "1. Click 'Choose patch files' and pick the .tsl file(s) you downloaded for a Katana MkII.\n"
     "2. Click 'Convert to Gen 1'.\n"
     "3. Open BOSS TONE STUDIO, connect your Gen 1 Katana, click Import, and pick the new file "
     "that ends in (Gen1).tsl.\n\n"
@@ -551,7 +617,7 @@ def run_window(preselected=()):
     from tkinter import filedialog, messagebox, ttk
 
     root = tk.Tk()
-    root.title("Katana Patch Converter - MkII / Gen 3 to Gen 1")
+    root.title("Katana Patch Converter - MkII to Gen 1")
     root.geometry("760x640")
     root.minsize(640, 520)
     state = {"files": [], "last_dir": None}
@@ -560,7 +626,7 @@ def run_window(preselected=()):
     ttk.Style().configure("Big.TButton", font=("Segoe UI", 12, "bold"), padding=8)
 
     ttk.Label(root, text="Katana Patch Converter", font=("Segoe UI", 18, "bold")).pack(pady=(14, 0))
-    ttk.Label(root, text="Turn patches made for the Katana MkII / Gen 3 into patches your Gen 1 Katana can use",
+    ttk.Label(root, text="Turn patches made for the Katana MkII into patches your Gen 1 Katana can use",
               font=big, wraplength=700, justify="center").pack(pady=(2, 10))
 
     top = ttk.Frame(root)
@@ -620,7 +686,7 @@ def run_window(preselected=()):
 
     def choose():
         files = filedialog.askopenfilenames(
-            title="Choose Katana MkII / Gen 3 patch file(s)",
+            title="Choose Katana MkII patch file(s)",
             filetypes=[("Katana patch files", "*.tsl"), ("All files", "*.*")])
         if files:
             set_files(list(files))

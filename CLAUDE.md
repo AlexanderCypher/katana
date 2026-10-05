@@ -1,6 +1,6 @@
 # Katana patch converter
 
-Single-file Python tool (katana_to_gen1.py) that converts BOSS Katana MkII / Gen 3 .tsl patches to Gen 1.
+Single-file Python tool (katana_to_gen1.py) that converts BOSS Katana MkII .tsl patches to Gen 1 (Gen 3 files are detected and refused; their format is unmapped).
 - Keep it one file with no third-party dependencies (tkinter window + text fallback).
 - Windows .exe is built by .github/workflows/build-exe.yml.
 - For format details, parameter numbers and open questions, use the katana-gen1-patches skill (.claude/skills/katana-gen1-patches/SKILL.md).
