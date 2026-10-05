@@ -1,44 +1,48 @@
-# Boss Katana Patch Converter (MkII to Gen 1)
+# Katana Patch Converter (MkII / Gen 3 → Gen 1)
 
-A standalone Python utility to safely downgrade and convert **BOSS Katana MkII** tone patch files (`.tsl`) into the named parameter format required by **Gen 1 (MkI) amplifiers**. 
+Turns patch files made for the **BOSS Katana MkII or Gen 3** into patch files your **Gen 1 Katana** can import in **BOSS TONE STUDIO**.
 
-This script features a built-in Gen 1 template and parameter map, meaning it requires **zero external dependencies or spreadsheets** to run.
+## How to use it (no technical knowledge needed)
 
-## ✨ Features
+**One-time setup (Windows):**
+1. Install Python from <https://www.python.org/downloads/>. On the first screen of the installer, **tick "Add python.exe to PATH"**, then click *Install Now*.
+2. Download `katana_to_gen1.py` from this page (click the file, then the download button).
 
-*   **All-in-One Script:** The conversion template and parameter map are fully embedded. You only need `katana_to_gen1.py`.
-*   **Batch Processing:** Select or drop multiple `.tsl` files or an entire liveset all at once.
-*   **Smart Skipping:** Automatically detects and skips files that are already in Gen 1 format, files already labeled `(Gen1)`, or files that are not valid Katana patches.
-*   **Error-Resistant:** If a patch is missing a specific configuration section, the script safely falls back to default values and reports the issue instead of crashing.
-*   **Clear Summary Logs:** The console window stays open after processing so you can easily read exactly what changes were made to your patches.
+**Every time you want to convert a patch:**
+1. Double-click `katana_to_gen1.py`. A window opens.
+2. Click **Choose patch files...** and pick your downloaded `.tsl` file(s).
+3. Click **Convert to Gen 1**.
+4. Click **Open the folder with my new files**. The new file ends in `(Gen1).tsl`.
+5. Open BOSS TONE STUDIO with your Gen 1 Katana connected, click **Import**, and choose the `(Gen1).tsl` file.
 
-## 🚀 How to Use
+You can also drag `.tsl` files onto `katana_to_gen1.py`, or run `python katana_to_gen1.py "My Patch.tsl"` in a terminal.
 
-There are three flexible ways to run the converter:
+Prefer a normal app with no Python? If a `.exe` is listed under **Releases**, download and double-click that instead.
 
-### 1. Graphical File Picker (Easiest)
-Simply **double-click** `katana_to_gen1.py`. A file explorer window will pop up allowing you to select one or multiple `.tsl` files from your computer.
+## What the messages mean
 
-### 2. Drag and Drop
-Highlight your `.tsl` files in Windows File Explorer and **drag and drop** them directly on top of the `katana_to_gen1.py` script icon.
+After converting, each patch is listed. Lines starting with `*` are things the Gen 1 amp cannot do exactly:
 
-### 3. Command Line
-Open your terminal or Command Prompt and pass the file paths as arguments:
-```bash
-python katana_to_gen1.py "Your Patch Name.tsl"
-```
+- **Variation amp** – MkII/Gen 3 "Variation" amp voices do not exist on Gen 1. The normal version of that amp is used.
+- **Contour / Solo EQ / second EQ** – Gen 1 has no equivalent, so these are not applied.
+- **Effect not available on Gen 1** – a few MkII-only effects/boosters are swapped for the closest Gen 1 one, or switched off. The message says which.
+- **Both effects ON** – on Gen 1 some effects share one button (Booster/Mod, Delay/FX). By default both stay on, which is closest to the original sound. Tick **Gen 1 button style** to keep only one.
 
-*Output files are cleanly saved right next to the original files as `<original_name> (Gen1).tsl`.*
+Patches with these notes are still converted. Listen to them and adjust to taste. Your original files are never changed, and existing files are never overwritten.
 
-## ⚠️ Important Architectural Translation Notes
+## What is converted
 
-Because Gen 1 (MkI) hardware has a different internal structure than newer models, the converter makes the following safety adjustments during translation:
+Patch name, Booster, Amp (type, gain, EQ knobs, level, etc.), EQ, MOD and FX effects (all parameters Gen 1 has), both Delays, Reverb, noise suppressor, send/return, foot volume, patch level, effect order, and the green/red/yellow effect slots.
 
-*   **Amp Types:** MkII-exclusive amp voices (such as Variation modes) do not exist on Gen 1. These are automatically reverted to the **Brown** amp channel, and a note is generated in the summary window.
-*   **Booster vs. MOD:** The MkII allows both slots to run simultaneously. Gen 1 hardware shares this slot. The script prioritizes and **keeps the Booster** while turning the MOD effect off.
-*   **Delay vs. FX2:** Like the effect slots above, Gen 1 shares this hardware slot. The script **keeps the Delay** settings active and disables FX2.
+## What is not converted
 
-## 🧪 Gen 3 (Katana-Go / Gen 3 Amps) Support
-Gen 3 support is currently **untested** but structurally built-in. The script accepts any patch file containing `KATANA` in its device string under the assumption that Gen 3 retains the standard MkII layout. 
+Contour, Solo EQ, the second EQ, Cab Resonance, the pedal-FX slot, the MkII-only effects (Delay/Chorus 30, Pedal Bend), and Variation amp voicing. Settings that control pedals and footswitches (EXP / GAFC assignments) are also not copied.
 
-If you encounter an issue or a failed import with a Gen 3 patch, please open an Issue and attach the broken `.tsl` file so it can be analyzed and patched!
+## Known limits
+
+- Tested with MkII patch files. **Gen 3 files are untested** - if one fails, please open an Issue and attach it.
+- Converted tones were not compared to the same patch exported from a real Gen 1; a pair of files (the same patch from both amps) would let the mapping be checked exactly.
+
+## How it works (for the curious)
+
+A MkII `.tsl` stores each patch as blocks of hex bytes that are slices of the amp's memory map. The script rebuilds that memory image, then copies each parameter into a real Gen 1 patch, translating values that differ between generations. The Gen 1 structure is built into the script, so there are no other files to keep.
