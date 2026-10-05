@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-katana_to_gen1.py  (v5)  -  convert BOSS Katana MkII .tsl patches to Katana Gen 1 (MkI) .tsl
+katana_to_gen1.py  (v2)  -  convert BOSS Katana MkII .tsl patches to Katana Gen 1 (MkI) .tsl
 
 EASIEST WAY TO USE (this one file is all you need):
   Double-click it. A window opens: click "Choose patch files", click "Convert", done.

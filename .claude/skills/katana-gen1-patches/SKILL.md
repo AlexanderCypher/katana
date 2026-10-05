@@ -5,7 +5,7 @@ description: Build, fix or convert BOSS Katana Gen 1 (MkI) .tsl patch files and 
 
 # Katana Gen 1 patches and converter
 
-The user (Al) owns a BOSS Katana Gen 1 and publishes a converter at github.com/AlexanderCypher/katana (katana_to_gen1.py, v4, single file with a built-in template and a tkinter window). Work from the script in the repo instead of rebuilding from memory.
+The user (Al) owns a BOSS Katana Gen 1 and publishes a converter at github.com/AlexanderCypher/katana (katana_to_gen1.py, v2, single file with a built-in template and a tkinter window). Work from the script in the repo instead of rebuilding from memory.
 
 ## Rules for working
 - Claude cannot hear audio. Never claim a tone sounds good; give a starting point and ask him to describe what he hears, then adjust.
