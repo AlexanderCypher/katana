@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-katana_to_gen1.py  (v3)  -  convert BOSS Katana MkII / Gen 3 .tsl patches to Katana Gen 1 (MkI) .tsl
+katana_to_gen1.py  (v4)  -  convert BOSS Katana MkII / Gen 3 .tsl patches to Katana Gen 1 (MkI) .tsl
 
-EASIEST WAYS TO USE (this one file is all you need):
-  1. Double-click it -> a file picker opens -> choose one or more .tsl files.
-  2. Drag one or more .tsl files onto this file.
-  3. Command line:   python katana_to_gen1.py "Some Patch.tsl" "Another.tsl"
+EASIEST WAY TO USE (this one file is all you need):
+  Double-click it. A window opens: click "Choose patch files", click "Convert", done.
+  (You can also drag .tsl files onto this file, or run:  python katana_to_gen1.py "Patch.tsl")
 
-Output is saved next to each original as "<name> (Gen1).tsl".
+The new files are saved next to the originals as "<name> (Gen1).tsl" - import them in BOSS TONE STUDIO.
 
-Option:  --strict-panel   Gen 1's front panel can only show ONE of Booster/Mod and ONE of
-                          Delay/FX at a time. By default every effect the MkII patch had ON stays
-                          ON (best tone match). With this flag the second effect of each pair is
-                          switched off so the patch behaves exactly like a normal Gen 1 panel.
+Option (command line only):  --strict-panel   keep only one effect of each pair that shares a button
+                             on the Gen 1 amp (Booster/Mod and Delay/FX).
 
 How it works (v3): a MkII .tsl stores each patch as hex byte blocks that are slices of the amp's
 memory map. The script rebuilds that memory image, then copies every parameter it understands
@@ -69,7 +66,7 @@ GEN1_FX_TYPES = {0, 1, 2, 3, 4, 6, 7, 9, 10, 12, 14, 15, 16, 18, 19, 20, 21, 22,
 FX_NAMES = {37: "WAH 95E", 38: "DELAY/CHORUS 30", 39: "HEAVY OCTAVE", 40: "PEDAL BEND"}
 FX_PLACEHOLDER = {37: 2, 38: 29, 39: 14, 40: 15}            # nearest Gen 1 type (used for non-active colour slots)
 
-REVERB_MAP = {2: 3}                                         # MkII Hall 1 -> Gen 1 Hall
+REVERB_MAP = {}   # Gen 1 and MkII number reverb types the same way (0 Amb,1 Room,2 Hall1,3 Hall2,4 Plate,5 Spring,6 Mod) - confirmed from real Gen 1 presets
 
 # (Gen 1 name, number of bytes) in MkII memory order
 FX_GROUPS = [
@@ -243,9 +240,9 @@ def convert_patch(blocks, tpl_patch):
     elif bt > 20:
         c.put("od_ds_type", BOOSTER_UNKNOWN_FALLBACK)
         c.note(f"Booster type {bt} unknown on Gen 1; used Over Drive")
-    if p["od_ds_drive"] > 100:
-        c.note(f"Booster drive {p['od_ds_drive']} is above the Gen 1 maximum; limited to 100")
-        c.put("od_ds_drive", 100)
+    if p["od_ds_drive"] > 120:
+        c.note(f"Booster drive {p['od_ds_drive']} is above the Gen 1 maximum; limited to 120")
+        c.put("od_ds_drive", 120)
 
     # ---- amp --------------------------------------------------------------------------
     for i, nm in enumerate(AMP_LAYOUT):
@@ -255,13 +252,13 @@ def convert_patch(blocks, tpl_patch):
     if at in AMP_MAP:
         c.put("preamp_a_type", AMP_MAP[at])
         c.note(f"Amp {AMP_NAMES[at]} (MkII Variation) -> {AMP_NAMES[AMP_MAP[at]]}: Gen 1 has no Variation "
-               f"voicing, so expect it slightly darker / lower gain than on the MkII")
+               f"voice, so the base voice was used - it may sound a little different")
     elif at > 27:
         c.put("preamp_a_type", AMP_UNKNOWN_FALLBACK)
         c.note(f"Amp id {at} is not a Gen 1 amp; used CRUNCH - check the amp type")
-    if p["preamp_a_gain"] > 100:
-        c.note(f"Amp gain {p['preamp_a_gain']} is above the Gen 1 maximum; limited to 100")
-        c.put("preamp_a_gain", 100)
+    if p["preamp_a_gain"] > 120:
+        c.note(f"Amp gain {p['preamp_a_gain']} is above the Gen 1 maximum; limited to 120")
+        c.put("preamp_a_gain", 120)
 
     # ---- EQ (EQ1; if EQ1 is off and EQ2 is on, EQ2 takes its place) -------------------
     eq_page, eq_off = 0, 0x40
@@ -408,86 +405,295 @@ def load_template():
     return json.loads(zlib.decompress(base64.b64decode(TEMPLATE_B64)).decode("utf-8"))
 
 
-SLOTS = ["A: CH1", "A: CH2", "B: CH1", "B: CH2"]
+SLOTS = ["A: CH1", "A: CH2", "A: CH3", "A: CH4", "B: CH1", "B: CH2", "B: CH3", "B: CH4"]
+REQUIRED_BLOCKS = ("UserPatch%PatchName", "UserPatch%Patch_0", "UserPatch%Fx(1)", "UserPatch%Fx(2)",
+                   "UserPatch%Delay(1)", "UserPatch%Patch_1")
 
 
-def convert_file(src_path):
+class Result:
+    """What happened to one input file (used by both the window and the text mode)."""
+
+    def __init__(self, source):
+        self.source = source
+        self.out_path = None
+        self.status = "skipped"          # "ok" | "skipped" | "error"
+        self.message = ""
+        self.patches = []                # [(patch name, [notes])]
+
+
+def free_name(path):
+    """never overwrite an existing file: add ' 2', ' 3' ... if the name is taken"""
+    if not os.path.exists(path):
+        return path
+    root, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{root} {n}{ext}"):
+        n += 1
+    return f"{root} {n}{ext}"
+
+
+def convert_file(src_path, out_dir=None):
+    """Convert one MkII / Gen 3 .tsl file. Never raises: problems are reported in the Result."""
+    res = Result(src_path)
     folder, fname = os.path.split(src_path)
     base = os.path.splitext(fname)[0]
-    if base.endswith("(Gen1)"):
-        print(f"- {fname}: already converted, skipping")
-        return False
     try:
-        src = json.load(open(src_path, encoding="utf-8"))
-    except Exception as e:
-        print(f"- {fname}: could not read as a .tsl file ({e})")
-        return False
-    device = str(src.get("device", ""))
-    if "patchList" in src:
-        print(f"- {fname}: already a Gen 1 style file (device {device!r}), skipping")
-        return False
-    if "data" not in src or "KATANA" not in device.upper():
-        print(f"- {fname}: not a Katana MkII/Gen 3 patch (device {device!r}), skipping")
-        return False
+        if base.endswith("(Gen1)"):
+            res.message = "Already converted - skipped."
+            return res
+        try:
+            with open(src_path, encoding="utf-8-sig") as fh:
+                src = json.load(fh)
+        except Exception:
+            res.status = "error"
+            res.message = "This does not look like a BOSS Tone Studio .tsl patch file."
+            return res
+        if not isinstance(src, dict):
+            res.status = "error"
+            res.message = "This does not look like a BOSS Tone Studio .tsl patch file."
+            return res
+        device = str(src.get("device", ""))
+        if "patchList" in src:
+            res.message = f"Already a Gen 1 file (amp type '{device}') - nothing to convert."
+            return res
+        if "data" not in src or "KATANA" not in device.upper():
+            res.status = "error"
+            res.message = f"Not a Katana MkII / Gen 3 patch file (found amp type '{device or 'unknown'}')."
+            return res
 
-    tpl = load_template()
-    out = copy.deepcopy(tpl)
-    out["liveSetData"]["name"] = src.get("name", base)
-    out["liveSetData"]["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
-    out["patchList"] = []
-    k = 0
-    for liveset in src["data"]:
-        for patch in liveset:
-            k += 1
-            c = convert_patch(patch.get("paramSet", {}), tpl["patchList"][0])
-            P = c.P
-            P["orderNumber"] = k
-            P["liveSetId"] = out["liveSetData"]["id"]
-            P["patchNo"] = SLOTS[(k - 1) % len(SLOTS)]
-            P["category"] = "USER1"
-            out["patchList"].append(P)
-            print(f"- {fname}: patch {k} '{P['name'].strip()}'")
-            for line in c.notes:
-                print("      *", line)
-    out_path = os.path.join(folder, base + " (Gen1).tsl")
-    json.dump(out, open(out_path, "w", encoding="utf-8"), separators=(",", ":"))
-    print(f"  saved: {out_path}")
-    return True
+        tpl = load_template()
+        out = copy.deepcopy(tpl)
+        out["liveSetData"]["name"] = str(src.get("name") or base)[:40]
+        out["liveSetData"]["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
+        out["patchList"] = []
+        used_ids = set()
+        rev = str(src.get("formatRev", ""))
+        extra = []
+        if rev and rev != "0002":
+            extra.append(f"File format revision {rev} has not been tested (the MkII format is 0002). "
+                         f"Please listen carefully to this patch.")
+        k = 0
+        for liveset in src["data"]:
+            for patch in liveset:
+                blocks = patch.get("paramSet", {}) if isinstance(patch, dict) else {}
+                missing = [b.split("%")[1] for b in REQUIRED_BLOCKS if b not in blocks]
+                label = patch.get("memo") if isinstance(patch, dict) else ""
+                if missing:
+                    res.patches.append((label or f"patch {k + 1}",
+                                        [f"SKIPPED: this patch is missing data ({', '.join(missing)}), "
+                                         f"so it can not be converted safely."]))
+                    continue
+                k += 1
+                c = convert_patch(blocks, tpl["patchList"][0])
+                P = c.P
+                while P["id"] in used_ids:
+                    P["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
+                used_ids.add(P["id"])
+                P["orderNumber"] = k
+                P["liveSetId"] = out["liveSetData"]["id"]
+                P["patchNo"] = SLOTS[k - 1] if k <= len(SLOTS) else None
+                P["category"] = "USER1"
+                out["patchList"].append(P)
+                res.patches.append((P["name"].strip() or f"patch {k}", extra + c.notes if k == 1 else c.notes))
+        if not out["patchList"]:
+            res.status = "error"
+            res.message = "No patches could be converted from this file."
+            return res
+        out_dir = out_dir or folder or "."
+        os.makedirs(out_dir, exist_ok=True)
+        res.out_path = free_name(os.path.join(out_dir, base + " (Gen1).tsl"))
+        with open(res.out_path, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, separators=(",", ":"))
+        res.status = "ok"
+        res.message = f"Saved {len(out['patchList'])} patch(es)."
+        return res
+    except Exception as e:                       # last resort - never crash on the user
+        res.status = "error"
+        res.message = f"Something unexpected went wrong ({type(e).__name__}: {e})."
+        return res
 
 
-def pick_files():
-    try:
-        import tkinter
-        from tkinter import filedialog
-        root = tkinter.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
+def describe(res):
+    """plain-text report for one file"""
+    icon = {"ok": "[OK]", "skipped": "[--]", "error": "[!!]"}[res.status]
+    lines = [f"{icon} {os.path.basename(res.source)}", f"     {res.message}"]
+    for name, notes in res.patches:
+        lines.append(f"     - {name}")
+        for n in notes:
+            lines.append(f"         * {n}")
+    if res.out_path:
+        lines.append(f"     New file: {res.out_path}")
+    return "\n".join(lines)
+
+
+def run_batch(files, out_dir=None):
+    results = [convert_file(f, out_dir) for f in files]
+    ok = sum(r.status == "ok" for r in results)
+    return results, ok
+
+
+# --------------------------------------------------------------------------------------
+# Simple window (tkinter ships with the normal Windows / Mac Python installer)
+# --------------------------------------------------------------------------------------
+HELP_TEXT = (
+    "1. Click 'Choose patch files' and pick the .tsl file(s) you downloaded for a newer Katana "
+    "(MkII or Gen 3).\n"
+    "2. Click 'Convert to Gen 1'.\n"
+    "3. Open BOSS TONE STUDIO, connect your Gen 1 Katana, click Import, and pick the new file "
+    "that ends in (Gen1).tsl.\n\n"
+    "Lines marked * under a patch are things that cannot be copied exactly to Gen 1. "
+    "Those patches are still converted - listen to them and adjust to taste."
+)
+
+
+def run_window(preselected=()):
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+
+    root = tk.Tk()
+    root.title("Katana Patch Converter - MkII / Gen 3 to Gen 1")
+    root.geometry("760x640")
+    root.minsize(640, 520)
+    state = {"files": [], "last_dir": None}
+
+    big = ("Segoe UI", 12)
+    ttk.Style().configure("Big.TButton", font=("Segoe UI", 12, "bold"), padding=8)
+
+    ttk.Label(root, text="Katana Patch Converter", font=("Segoe UI", 18, "bold")).pack(pady=(14, 0))
+    ttk.Label(root, text="Turn patches made for the Katana MkII / Gen 3 into patches your Gen 1 Katana can use",
+              font=big, wraplength=700, justify="center").pack(pady=(2, 10))
+
+    top = ttk.Frame(root)
+    top.pack(fill="x", padx=16)
+    ttk.Label(top, text="Step 1", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w")
+    pick_btn = ttk.Button(top, text="Choose patch files...", style="Big.TButton")
+    pick_btn.grid(row=0, column=1, padx=10, sticky="w")
+    files_var = tk.StringVar(value="No files chosen yet")
+    ttk.Label(top, textvariable=files_var, font=big, wraplength=420).grid(row=0, column=2, sticky="w")
+
+    mid = ttk.Frame(root)
+    mid.pack(fill="x", padx=16, pady=(10, 0))
+    ttk.Label(mid, text="Step 2", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w")
+    go_btn = ttk.Button(mid, text="Convert to Gen 1", style="Big.TButton", state="disabled")
+    go_btn.grid(row=0, column=1, padx=10, sticky="w")
+    strict_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(mid, variable=strict_var,
+                    text="Gen 1 button style (only one effect per shared button)").grid(row=0, column=2, sticky="w")
+
+    ttk.Label(root, text="Step 3: import the new files into BOSS TONE STUDIO (see 'How do I use this?')",
+              font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=16, pady=(10, 2))
+
+    box = ttk.Frame(root)
+    box.pack(fill="both", expand=True, padx=16, pady=(0, 6))
+    txt = tk.Text(box, wrap="word", font=("Consolas", 10), state="disabled", height=14)
+    sb = ttk.Scrollbar(box, command=txt.yview)
+    txt.configure(yscrollcommand=sb.set)
+    sb.pack(side="right", fill="y")
+    txt.pack(side="left", fill="both", expand=True)
+
+    def show(text, clear=False):
+        txt.configure(state="normal")
+        if clear:
+            txt.delete("1.0", "end")
+        txt.insert("end", text)
+        txt.configure(state="disabled")
+        txt.see("end")
+
+    bottom = ttk.Frame(root)
+    bottom.pack(fill="x", padx=16, pady=(0, 14))
+    open_btn = ttk.Button(bottom, text="Open the folder with my new files", state="disabled")
+    open_btn.pack(side="left")
+    ttk.Button(bottom, text="How do I use this?",
+               command=lambda: messagebox.showinfo("How to use", HELP_TEXT)).pack(side="left", padx=8)
+    ttk.Button(bottom, text="Close", command=root.destroy).pack(side="right")
+
+    def set_files(files):
+        state["files"] = [f for f in files if f]
+        n = len(state["files"])
+        if n == 0:
+            files_var.set("No files chosen yet")
+            go_btn.configure(state="disabled")
+        else:
+            names = ", ".join(os.path.basename(f) for f in state["files"][:3])
+            files_var.set(f"{n} file(s) chosen: {names}" + (" ..." if n > 3 else ""))
+            go_btn.configure(state="normal")
+
+    def choose():
         files = filedialog.askopenfilenames(
-            title="Select Katana MkII / Gen 3 .tsl file(s) to convert to Gen 1",
+            title="Choose Katana MkII / Gen 3 patch file(s)",
             filetypes=[("Katana patch files", "*.tsl"), ("All files", "*.*")])
-        root.destroy()
-        return list(files)
-    except Exception:
-        print("Drag your .tsl file(s) into this window and press Enter")
-        print("(or just press Enter to convert every .tsl in this script's folder):")
+        if files:
+            set_files(list(files))
+            show("Ready. Click 'Convert to Gen 1'.\n", clear=True)
+
+    def open_folder():
+        d = state["last_dir"]
+        if not d:
+            return
+        try:
+            if os.name == "nt":
+                os.startfile(d)                                   # noqa
+            elif sys.platform == "darwin":
+                os.system(f'open "{d}"')
+            else:
+                os.system(f'xdg-open "{d}" >/dev/null 2>&1 &')
+        except Exception:
+            messagebox.showinfo("Folder", d)
+
+    def convert():
+        global STRICT_PANEL
+        STRICT_PANEL = bool(strict_var.get())
+        show("Converting...\n", clear=True)
+        root.update_idletasks()
+        results, ok = run_batch(state["files"])
+        show("\n\n".join(describe(r) for r in results), clear=True)
+        done = [r for r in results if r.out_path]
+        if done:
+            state["last_dir"] = os.path.dirname(os.path.abspath(done[-1].out_path))
+            open_btn.configure(state="normal")
+            show(f"\n\nDone: {ok} of {len(results)} file(s) converted. "
+                 f"Next: import the (Gen1).tsl file(s) into BOSS TONE STUDIO.\n")
+        else:
+            show("\n\nNothing was converted - see the messages above.\n")
+
+    pick_btn.configure(command=choose)
+    go_btn.configure(command=convert)
+    open_btn.configure(command=open_folder)
+
+    show(HELP_TEXT + "\n", clear=True)
+    if preselected:
+        set_files(list(preselected))
+        root.after(200, convert)
+    root.mainloop()
+
+
+def run_text_mode(files):
+    if not files:
+        print("Type or drag the path of a .tsl file here and press Enter (empty = quit):")
         line = input("> ").strip()
         if not line:
-            here = os.path.dirname(os.path.abspath(__file__))
-            return [os.path.join(here, f) for f in os.listdir(here) if f.lower().endswith(".tsl")]
+            return
         import shlex
-        return shlex.split(line, posix=False) if os.name == "nt" else shlex.split(line)
+        files = shlex.split(line, posix=(os.name != "nt"))
+    results, ok = run_batch([f.strip('"') for f in files])
+    print()
+    for r in results:
+        print(describe(r))
+        print()
+    print(f"Done: {ok} of {len(results)} file(s) converted.")
 
 
 def main():
-    files = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if not files:
-        files = pick_files()
-    files = [f.strip('"') for f in files]
-    if not files:
-        print("No files selected.")
+    files = [a.strip('"') for a in sys.argv[1:] if not a.startswith("--")]
+    if "--cli" in sys.argv:
+        run_text_mode(files)
         return
-    done = sum(convert_file(f) for f in files)
-    print(f"\nConverted {done} of {len(files)} file(s).")
+    try:
+        import tkinter  # noqa: F401
+    except Exception:
+        run_text_mode(files)
+        return
+    run_window(files)
 
 
 if __name__ == "__main__":
@@ -495,5 +701,5 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print("Error:", e)
-    if os.name == "nt" and not os.environ.get("PROMPT"):
-        input("\nPress Enter to close...")
+        if os.name == "nt":
+            input("\nPress Enter to close...")
