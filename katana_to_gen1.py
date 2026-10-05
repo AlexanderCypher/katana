@@ -1,144 +1,414 @@
 #!/usr/bin/env python3
 """
-katana_to_gen1.py - convert BOSS Katana MkII / Gen 3 .tsl patch files to Katana Gen 1.
+katana_to_gen1.py  (v3)  -  convert BOSS Katana MkII / Gen 3 .tsl patches to Katana Gen 1 (MkI) .tsl
 
-EASIEST WAYS TO USE (single file, nothing else needed):
-  1. Double-click this file -> a file picker opens -> select one or more .tsl files.
+EASIEST WAYS TO USE (this one file is all you need):
+  1. Double-click it -> a file picker opens -> choose one or more .tsl files.
   2. Drag one or more .tsl files onto this file.
-  3. Command line:  python katana_to_gen1.py "Some Patch.tsl" "Another.tsl"
-Each result is saved next to the original as "<name> (Gen1).tsl".
+  3. Command line:   python katana_to_gen1.py "Some Patch.tsl" "Another.tsl"
+
+Output is saved next to each original as "<name> (Gen1).tsl".
+
+Option:  --strict-panel   Gen 1's front panel can only show ONE of Booster/Mod and ONE of
+                          Delay/FX at a time. By default every effect the MkII patch had ON stays
+                          ON (best tone match). With this flag the second effect of each pair is
+                          switched off so the patch behaves exactly like a normal Gen 1 panel.
+
+How it works (v3): a MkII .tsl stores each patch as hex byte blocks that are slices of the amp's
+memory map. The script rebuilds that memory image, then copies every parameter it understands
+into a real Gen 1 patch (named parameters), translating values that differ between generations
+(amp voices, booster / effect types, colour slots, EQ, chain order, patch level ...).
 """
 import base64, copy, json, os, random, sys, zlib
 
-TEMPLATE_B64 = "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"
-OFFSETS = json.loads('{"od_ds_on_off":48,"od_ds_type":49,"od_ds_drive":50,"od_ds_bottom":51,"od_ds_tone":52,"od_ds_solo_sw":53,"od_ds_solo_level":54,"od_ds_effect_level":55,"od_ds_direct_mix":56,"od_ds_custom_type":57,"od_ds_custom_bottom":58,"od_ds_custom_top":59,"od_ds_custom_low":60,"od_ds_custom_high":61,"od_ds_custom_character":62,"preamp_a_on_off":80,"preamp_a_type":81,"preamp_a_gain":82,"preamp_a_t_comp":83,"preamp_a_bass":84,"preamp_a_middle":85,"preamp_a_treble":86,"preamp_a_presence":87,"preamp_a_level":88,"preamp_a_bright":89,"preamp_a_gain_sw":90,"preamp_a_solo_sw":91,"preamp_a_solo_level":92,"preamp_a_sp_type":93,"preamp_a_mic_type":94,"preamp_a_mic_dis":95,"preamp_a_mic_pos":96,"preamp_a_mic_level":97,"preamp_a_direct_mix":98,"preamp_a_custom_type":99,"preamp_a_custom_bottom":100,"preamp_a_custom_edge":101,"preamp_a_custom_preamp_low":104,"preamp_a_custom_preamp_high":105,"preamp_a_custom_char":106,"preamp_a_custom_sp_size":107,"preamp_a_custom_sp_color_low":108,"preamp_a_custom_sp_color_high":109,"preamp_a_custom_sp_num":110,"preamp_a_custom_sp_cabinet":111}')
+TEMPLATE_B64 = "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"
 
-MAX_MK1_AMP = 27     # Gen 1 amp types are 0-27
-FALLBACK_AMP = 23    # BROWN, used for MkII/Gen3-only amp voices
+STRICT_PANEL = "--strict-panel" in sys.argv
 
+# --------------------------------------------------------------------------------------
+# MkII memory model.  address = (page << 7) | offset
+# --------------------------------------------------------------------------------------
+BLOCKS = {                                   # TSL block -> (page, offset) where it starts
+    "UserPatch%PatchName": (0, 0x00), "UserPatch%Patch_0": (0, 0x10), "UserPatch%Eq(2)": (0, 0x60),
+    "UserPatch%Fx(1)": (1, 0x00), "UserPatch%Fx(2)": (3, 0x00),
+    "UserPatch%Delay(1)": (5, 0x00), "UserPatch%Delay(2)": (5, 0x20),
+    "UserPatch%Patch_1": (5, 0x40), "UserPatch%Patch_2": (6, 0x20), "UserPatch%Status": (6, 0x50),
+}
+
+
+def A(page, off):
+    return (page << 7) | off
+
+
+def build_image(blocks, log):
+    mem = {}
+    for name, (pg, off) in BLOCKS.items():
+        data = blocks.get(name)
+        if data is None:
+            if name not in ("UserPatch%Eq(2)", "UserPatch%Status"):
+                log.append(f"source has no {name} block - those settings left at template defaults")
+            continue
+        for i, x in enumerate(data):
+            mem[A(pg, off) + i] = int(x, 16)
+    return mem
+
+
+# --------------------------------------------------------------------------------------
+# value translation tables (MkII id -> Gen 1 id)
+# --------------------------------------------------------------------------------------
+AMP_NAMES = {0: "Natural Clean", 1: "ACOUSTIC", 8: "CLEAN", 11: "CRUNCH", 23: "BROWN", 24: "LEAD",
+             28: "Var ACOUSTIC", 29: "Var CLEAN", 30: "Var CRUNCH", 31: "Var LEAD", 32: "Var BROWN"}
+AMP_MAP = {28: 1, 29: 8, 30: 11, 31: 24, 32: 23}          # MkII "Variation" voices -> base voice
+AMP_UNKNOWN_FALLBACK = 11                                   # CRUNCH, for ids newer than MkII
+
+BOOSTER_MAP = {21: 18, 22: 8, 23: 10}                       # HM-2 -> Metal Zone, Metal Core -> Metal DS, Centa OD -> Blues Drive
+BOOSTER_NAMES = {21: "HM-2", 22: "Metal Core", 23: "Centa OD"}
+BOOSTER_UNKNOWN_FALLBACK = 11
+
+GEN1_FX_TYPES = {0, 1, 2, 3, 4, 6, 7, 9, 10, 12, 14, 15, 16, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 31, 35, 36}
+FX_NAMES = {37: "WAH 95E", 38: "DELAY/CHORUS 30", 39: "HEAVY OCTAVE", 40: "PEDAL BEND"}
+FX_PLACEHOLDER = {37: 2, 38: 29, 39: 14, 40: 15}            # nearest Gen 1 type (used for non-active colour slots)
+
+REVERB_MAP = {2: 3}                                         # MkII Hall 1 -> Gen 1 Hall
+
+# (Gen 1 name, number of bytes) in MkII memory order
 FX_GROUPS = [
-    ("t_wah", ["mode", "polar", "sens", "freq", "peak", "direct_mix", "effect_level"]),
-    ("auto_wah", ["mode", "freq", "peak", "rate", "depth", "direct_mix", "effect_level"]),
-    ("sub_wah", ["type", "pedal_pos", "pedal_min", "pedal_max", "effect_level", "direct_mix"]),
-    ("adv_comp", ["type", "sustain", "attack", "tone", "level"]),
-    ("limiter", ["type", "attack", "thresh", "ratio", "release", "level"]),
-    ("graphic_eq", ["31hz", "62hz", "125hz", "250hz", "500hz", "1khz", "2khz", "4khz", "8khz", "16khz", "level"]),
-    ("parametric_eq", ["low_cut", "low_gain", "low_mid_freq", "low_mid_q", "low_mid_gain",
-                       "high_mid_freq", "high_mid_q", "high_mid_gain", "high_gain", "high_cut", "level"]),
-    ("tone_modify", ["type", "reso", "low", "high", "level"]),
+    ("on_off", 1), ("fx_type", 1),
+    ("t_wah_mode", 1), ("t_wah_polar", 1), ("t_wah_sens", 1), ("t_wah_freq", 1), ("t_wah_peak", 1),
+    ("t_wah_direct_mix", 1), ("t_wah_effect_level", 1),
+    ("auto_wah_mode", 1), ("auto_wah_freq", 1), ("auto_wah_peak", 1), ("auto_wah_rate", 1),
+    ("auto_wah_depth", 1), ("auto_wah_direct_mix", 1), ("auto_wah_effect_level", 1),
+    ("sub_wah_type", 1), ("sub_wah_pedal_pos", 1), ("sub_wah_pedal_min", 1), ("sub_wah_pedal_max", 1),
+    ("sub_wah_effect_level", 1), ("sub_wah_direct_mix", 1),
+    ("adv_comp_type", 1), ("adv_comp_sustain", 1), ("adv_comp_attack", 1), ("adv_comp_tone", 1),
+    ("adv_comp_level", 1),
+    ("limiter_type", 1), ("limiter_attack", 1), ("limiter_thresh", 1), ("limiter_ratio", 1),
+    ("limiter_release", 1), ("limiter_level", 1),
+] + [(f"graphic_eq_{b}", 1) for b in
+     ("31hz", "62hz", "125hz", "250hz", "500hz", "1khz", "2khz", "4khz", "8khz", "16khz", "level")] + [
+    ("parametric_eq_low_cut", 1), ("parametric_eq_low_gain", 1), ("parametric_eq_low_mid_freq", 1),
+    ("parametric_eq_low_mid_q", 1), ("parametric_eq_low_mid_gain", 1), ("parametric_eq_high_mid_freq", 1),
+    ("parametric_eq_high_mid_q", 1), ("parametric_eq_high_mid_gain", 1), ("parametric_eq_high_gain", 1),
+    ("parametric_eq_high_cut", 1), ("parametric_eq_level", 1),
+    ("guitar_sim_type", 1), ("guitar_sim_low", 1), ("guitar_sim_high", 1), ("guitar_sim_level", 1),
+    ("guitar_sim_body", 1),
+    ("slow_gear_sens", 1), ("slow_gear_rise_time", 1), ("slow_gear_level", 1),
+    ("wave_synth_wave", 1), ("wave_synth_cutoff", 1), ("wave_synth_reso", 1), ("wave_synth_filter_sens", 1),
+    ("wave_synth_filter_decay", 1), ("wave_synth_filter_depth", 1), ("wave_synth_synth_level", 1),
+    ("wave_synth_direct_mix", 1),
+    ("octave_range", 1), ("octave_level", 1), ("octave_direct_mix", 1),
+    ("pitch_shifter_voice", 1), ("pitch_shifter_ps1mode", 1), ("pitch_shifter_ps1pitch", 1),
+    ("pitch_shifter_ps1fine", 1), ("pitch_shifter_ps1pre_dly", 2), ("pitch_shifter_ps1level", 1),
+    ("pitch_shifter_ps2mode", 1), ("pitch_shifter_ps2pitch", 1), ("pitch_shifter_ps2fine", 1),
+    ("pitch_shifter_ps2pre_dly", 2), ("pitch_shifter_ps2level", 1), ("pitch_shifter_ps1f_back", 1),
+    ("pitch_shifter_direct_mix", 1),
+    ("harmonist_voice", 1), ("harmonist_hr1harm", 1), ("harmonist_hr1pre_dly", 2), ("harmonist_hr1level", 1),
+    ("harmonist_hr2harm", 1), ("harmonist_hr2pre_dly", 2), ("harmonist_hr2level", 1),
+    ("harmonist_hr1f_back", 1), ("harmonist_direct_mix", 1),
+] + [(f"harmonist_hr{v}{n}", 1) for v in (1, 2) for n in
+     ("c", "db", "d", "eb", "e", "f", "f_s", "g", "ab", "a", "bb", "b")] + [
+    ("ac_processor_type", 1), ("ac_processor_bass", 1), ("ac_processor_middle", 1),
+    ("ac_processor_middle_freq", 1), ("ac_processor_treble", 1), ("ac_processor_presence", 1),
+    ("ac_processor_level", 1),
+    ("phaser_type", 1), ("phaser_rate", 1), ("phaser_depth", 1), ("phaser_manual", 1), ("phaser_reso", 1),
+    ("phaser_step_rate", 1), ("phaser_effect_level", 1), ("phaser_direct_mix", 1),
+    ("flanger_rate", 1), ("flanger_depth", 1), ("flanger_manual", 1), ("flanger_reso", 1),
+    ("flanger_separation", 1), ("flanger_low_cut", 1), ("flanger_effect_level", 1), ("flanger_direct_mix", 1),
+    ("tremolo_wave_shape", 1), ("tremolo_rate", 1), ("tremolo_depth", 1), ("tremolo_level", 1),
+    ("rotary_speed_select", 1), ("rotary_rate_slow", 1), ("rotary_rate_fast", 1), ("rotary_rise_time", 1),
+    ("rotary_fall_time", 1), ("rotary_depth", 1), ("rotary_level", 1),
+    ("uni_v_rate", 1), ("uni_v_depth", 1), ("uni_v_level", 1),
+    ("slicer_pattern", 1), ("slicer_rate", 1), ("slicer_trigger_sens", 1), ("slicer_effect_level", 1),
+    ("slicer_direct_mix", 1),
+    ("vibrato_rate", 1), ("vibrato_depth", 1), ("vibrato_trigger", 1), ("vibrato_rise_time", 1),
+    ("vibrato_level", 1),
+    ("ring_mod_mode", 1), ("ring_mod_freq", 1), ("ring_mod_effect_level", 1), ("ring_mod_direct_mix", 1),
+    ("humanizer_mode", 1), ("humanizer_vowel1", 1), ("humanizer_vowel2", 1), ("humanizer_sens", 1),
+    ("humanizer_rate", 1), ("humanizer_depth", 1), ("humanizer_manual", 1), ("humanizer_level", 1),
+    ("2x2_chorus_xover_freq", 1), ("2x2_chorus_low_rate", 1), ("2x2_chorus_low_depth", 1),
+    ("2x2_chorus_low_pre_delay", 1), ("2x2_chorus_low_level", 1), ("2x2_chorus_high_rate", 1),
+    ("2x2_chorus_high_depth", 1), ("2x2_chorus_high_pre_delay", 1), ("2x2_chorus_high_level", 1),
+    ("2x2_chorus_direct_level", 1),
+    ("acsim_high", 1), ("acsim_body", 1), ("acsim_low", 1), (None, 1), ("acsim_level", 1),   # MkII: Top, Body, Low, High, Level
+    ("phaser90e_script", 1), ("phaser90e_speed", 1),
+    ("flanger117e_manual", 1), ("flanger117e_width", 1), ("flanger117e_speed", 1), ("flanger117e_regen", 1),
+    ("@wah95_pedal_pos", 1), ("@wah95_pedal_min", 1), ("@wah95_pedal_max", 1), ("@wah95_effect_level", 1),
+    ("@wah95_direct_mix", 1),
+    (None, 9),                                                                              # DELAY CHORUS 30 (no Gen 1 equivalent)
+    ("@hoc_oct1", 1), ("@hoc_oct2", 1), ("@hoc_direct_mix", 1),
+    (None, 4),                                                                              # PEDAL BEND (no Gen 1 equivalent)
 ]
-DELAY_FIELDS = ["on_off", "type", "delay_time*", "f_back", "high_cut", "effect_level", "direct_mix",
-                "tap_time", "d1_time*", "d1_f_back", "d1_hi_cut", "d1_level", "d2_time*", "d2_f_back",
-                "d2_hi_cut", "d2_level", "mod_rate", "mod_depth", "vtg_lpf", "vtg_feedback_phase",
-                "vtg_filter", "vtg_effect_phase", "vtg_mod_sw"]   # * = 2-byte value
-REVERB_FIELDS = ["on_off", "type", "time", "pre_delay*", "low_cut", "high_cut", "density",
-                 "effect_level", "direct_mix", "spring_sens"]
+assert sum(n for _, n in FX_GROUPS) == 225
+
+DELAY_LAYOUT = [
+    ("on_off", 1), ("type", 1), ("delay_time", 2), ("f_back", 1), ("high_cut", 1), ("effect_level", 1),
+    ("direct_mix", 1), ("tap_time", 1), ("d1_time", 2), ("d1_f_back", 1), ("d1_hi_cut", 1), ("d1_level", 1),
+    ("d2_time", 2), ("d2_f_back", 1), ("d2_hi_cut", 1), ("d2_level", 1), ("mod_rate", 1), ("mod_depth", 1),
+    ("vtg_lpf", 1), ("vtg_filter", 1), ("vtg_feedback_phase", 1), ("vtg_effect_phase", 1), ("vtg_mod_sw", 1),
+]
+assert sum(n for _, n in DELAY_LAYOUT) == 26
+
+REVERB_LAYOUT = [("on_off", 1), ("type", 1), ("time", 1), ("pre_delay", 2), ("low_cut", 1), ("high_cut", 1),
+                 ("density", 1), ("effect_level", 1), ("direct_mix", 1), ("spring_sens", 1)]
+
+BOOSTER_LAYOUT = ["on_off", "type", "drive", "bottom", "tone", "solo_sw", "solo_level", "effect_level",
+                  "direct_mix", "custom_type", "custom_bottom", "custom_top", "custom_low", "custom_high",
+                  "custom_character"]
+
+AMP_LAYOUT = ["on_off", "type", "gain", "t_comp", "bass", "middle", "treble", "presence", "level", "bright",
+              "gain_sw", "solo_sw", "solo_level", "sp_type", "mic_type", "mic_dis", "mic_pos", "mic_level",
+              "direct_mix", "custom_type", "custom_bottom", "custom_edge", None, None, "custom_preamp_low",
+              "custom_preamp_high", "custom_char", "custom_sp_size", "custom_sp_color_low",
+              "custom_sp_color_high", "custom_sp_num", "custom_sp_cabinet"]
+
+EQ_LAYOUT = (["eq_on_off", "eq_type", "eq_low_cut", "eq_low_gain", "eq_low_mid_freq", "eq_low_mid_q",
+              "eq_low_mid_gain", "eq_high_mid_freq", "eq_high_mid_q", "eq_high_mid_gain", "eq_high_gain",
+              "eq_high_cut", "eq_level"] +
+             [f"eq_geq_{b}" for b in ("31hz", "62hz", "125hz", "250hz", "500hz", "1khz", "2khz", "4khz",
+                                      "8khz", "16khz", "level")])
+
+COLOURS = ("g", "r", "y")
 
 
-def hx(x):
-    return int(x, 16)
+# --------------------------------------------------------------------------------------
+class Conv:
+    def __init__(self, tpl_patch):
+        self.P = copy.deepcopy(tpl_patch)
+        self.p = self.P["params"]
+        self.notes = []
+        self.dropped = set()
+
+    def note(self, s):
+        if s not in self.notes:
+            self.notes.append(s)
+
+    def put(self, key, val):
+        if key in self.p:
+            self.p[key] = val
+        else:
+            self.dropped.add(key)
+
+    def put2(self, key, hi, lo):
+        self.put(key, hi * 128 + lo)
+        self.put(key + "_h", hi)
+        self.put(key + "_l", lo)
 
 
+def read_seq(mem, page, off, layout):
+    """yield (name, value, hi, lo) walking a layout starting at (page, off)"""
+    a = A(page, off)
+    for name, n in layout:
+        if n == 1:
+            yield name, mem.get(a, 0), None, None
+        else:
+            yield name, mem.get(a, 0) * 128 + mem.get(a + 1, 0), mem.get(a, 0), mem.get(a + 1, 0)
+        a += n
+
+
+def fx_type_for_slot(c, t, active, where):
+    """translate a MOD/FX type id; returns (gen1_type, supported)"""
+    if t in GEN1_FX_TYPES:
+        return t, True
+    if t in FX_PLACEHOLDER:
+        if active:
+            c.note(f"{where}: {FX_NAMES.get(t, t)} does not exist on Gen 1")
+        return FX_PLACEHOLDER[t], False
+    if active:
+        c.note(f"{where}: effect type {t} does not exist on Gen 1")
+    return 0, False
+
+
+def convert_patch(blocks, tpl_patch):
+    c = Conv(tpl_patch)
+    p = c.p
+    mem = build_image(blocks, c.notes)
+    g = lambda pg, off: mem.get(A(pg, off), 0)
+
+    # ---- name -------------------------------------------------------------------------
+    raw = [g(0, i) for i in range(16)]
+    name = bytes(b if 32 <= b < 127 else 32 for b in raw).decode("ascii").rstrip()
+    for i, b in enumerate(raw):
+        c.put(f"patch_name{i+1}", b)
+    c.p["patchname"] = name
+    c.P["name"] = name.ljust(16)
+
+    # ---- booster ----------------------------------------------------------------------
+    for i, nm in enumerate(BOOSTER_LAYOUT):
+        c.put("od_ds_" + nm, g(0, 0x10 + i))
+    bt = g(0, 0x11)
+    if bt in BOOSTER_MAP:
+        c.put("od_ds_type", BOOSTER_MAP[bt])
+        if g(0, 0x10):
+            c.note(f"Booster {BOOSTER_NAMES[bt]} is MkII-only; used the closest Gen 1 booster instead")
+    elif bt > 20:
+        c.put("od_ds_type", BOOSTER_UNKNOWN_FALLBACK)
+        c.note(f"Booster type {bt} unknown on Gen 1; used Over Drive")
+    if p["od_ds_drive"] > 100:
+        c.note(f"Booster drive {p['od_ds_drive']} is above the Gen 1 maximum; limited to 100")
+        c.put("od_ds_drive", 100)
+
+    # ---- amp --------------------------------------------------------------------------
+    for i, nm in enumerate(AMP_LAYOUT):
+        if nm:
+            c.put("preamp_a_" + nm, g(0, 0x20 + i))
+    at = g(0, 0x21)
+    if at in AMP_MAP:
+        c.put("preamp_a_type", AMP_MAP[at])
+        c.note(f"Amp {AMP_NAMES[at]} (MkII Variation) -> {AMP_NAMES[AMP_MAP[at]]}: Gen 1 has no Variation "
+               f"voicing, so expect it slightly darker / lower gain than on the MkII")
+    elif at > 27:
+        c.put("preamp_a_type", AMP_UNKNOWN_FALLBACK)
+        c.note(f"Amp id {at} is not a Gen 1 amp; used CRUNCH - check the amp type")
+    if p["preamp_a_gain"] > 100:
+        c.note(f"Amp gain {p['preamp_a_gain']} is above the Gen 1 maximum; limited to 100")
+        c.put("preamp_a_gain", 100)
+
+    # ---- EQ (EQ1; if EQ1 is off and EQ2 is on, EQ2 takes its place) -------------------
+    eq_page, eq_off = 0, 0x40
+    eq_pos = g(6, 0x22)
+    if not g(0, 0x40) and g(0, 0x60):
+        eq_off, eq_pos = 0x60, g(6, 0x19)
+        c.note("MkII EQ 2 was the one in use; copied into the Gen 1 EQ")
+    elif g(0, 0x40) and g(0, 0x60):
+        c.note("MkII EQ 2 is also on; Gen 1 has one EQ, so EQ 2 was not applied")
+    for i, key in enumerate(EQ_LAYOUT):
+        c.put(key, g(eq_page, eq_off + i))
+    c.put("eq_position", eq_pos)
+
+    # ---- MOD (FX1) and FX (FX2) -------------------------------------------------------
+    extra = {}
+    for n, page in ((1, 1), (2, 3)):
+        a = A(page, 0)
+        vals = {}
+        for name_, size in FX_GROUPS:
+            if name_ is not None:
+                if size == 1:
+                    vals[name_] = mem.get(a, 0)
+                else:
+                    vals[name_] = (mem.get(a, 0), mem.get(a + 1, 0))
+            a += size
+        label = "MOD" if n == 1 else "FX"
+        on, typ = vals["on_off"], vals["fx_type"]
+        c.put(f"fx{n}_on_off", on)
+        gtype, ok = fx_type_for_slot(c, typ, on, label)
+        c.put(f"fx{n}_fx_type", gtype)
+        if not ok and on:
+            if typ == 37:                                   # WAH 95E -> pedal wah
+                for k in ("pedal_pos", "pedal_min", "pedal_max", "effect_level", "direct_mix"):
+                    c.put(f"fx{n}_sub_wah_{k}", vals["@wah95_" + k])
+                c.note(f"{label}: WAH 95E replaced by the Gen 1 Pedal Wah with the same pedal settings")
+            elif typ == 39:                                 # Heavy Octave -> Octave
+                c.put(f"fx{n}_octave_range", 1)
+                c.put(f"fx{n}_octave_level", vals["@hoc_oct1"])
+                c.put(f"fx{n}_octave_direct_mix", vals["@hoc_direct_mix"])
+                c.note(f"{label}: HEAVY OCTAVE replaced by Octave (-1 oct level)")
+            else:
+                c.put(f"fx{n}_on_off", 0)
+                c.note(f"{label}: switched off (no Gen 1 equivalent)")
+        for name_, v in vals.items():
+            if name_ in ("on_off", "fx_type") or name_.startswith("@"):
+                continue
+            key = f"fx{n}_{name_}"
+            if isinstance(v, tuple):
+                c.put2(key, *v)
+            else:
+                c.put(key, v)
+
+    # ---- delays -----------------------------------------------------------------------
+    for n, off, pre in ((1, 0x00, "delay_"), (2, 0x20, "delay2_")):
+        for name_, v, hi, lo in read_seq(mem, 5, off, DELAY_LAYOUT):
+            if hi is None:
+                c.put(pre + name_, v)
+            else:
+                c.put2(pre + name_, hi, lo)
+
+    # ---- reverb -----------------------------------------------------------------------
+    for name_, v, hi, lo in read_seq(mem, 5, 0x40, REVERB_LAYOUT):
+        if hi is None:
+            c.put("reverb_" + name_, v)
+        else:
+            c.put2("reverb_" + name_, hi, lo)
+    rt = g(5, 0x41)
+    if rt in REVERB_MAP:
+        c.put("reverb_type", REVERB_MAP[rt])
+        c.note("Reverb Hall 1 -> Gen 1 Hall")
+
+    # ---- foot volume, send/return, noise suppressor, patch level ----------------------
+    c.put("foot_volume_level", g(5, 0x61))
+    c.put("send_return_on_off", g(5, 0x62))
+    c.put("send_return_mode", g(5, 0x63))
+    c.put("send_return_send_level", g(5, 0x64))
+    c.put("send_return_return_level", g(5, 0x65))
+    c.put("send_return_position", g(6, 0x21))
+    c.put("ns1_on_off", g(5, 0x66))
+    c.put("ns1_threshold", g(5, 0x67))
+    c.put("ns1_release", g(5, 0x68))
+    c.put("patch_level", g(5, 0x70))
+    c.put("master_key", g(5, 0x71))
+
+    # ---- signal chain order (same block ids on both generations) ------------------------
+    chain = [g(6, i) for i in range(20)]
+    if sorted(chain) == list(range(20)):
+        for i, v in enumerate(chain):
+            c.put(f"fx_chain_position{i+1}", v)
+        cp = {f"position{i+1}": v for i, v in enumerate(chain)}
+        cp["positionList"] = chain
+        if "chainParams" in p:
+            p["chainParams"] = cp
+    else:
+        c.note("chain order in the source looked invalid; left at the template default")
+    c.put("chain_ptn", min(g(6, 0x20), 2))
+
+    # ---- colour slots (green / red / yellow) and which one is selected -----------------
+    boxes = [("fx1a", 0x24, "Booster"), ("fx1b", 0x27, "MOD"), ("fx2b", 0x2A, "FX"),
+             ("fx2a", 0x2D, "Delay 1"), ("fx3", 0x30, "Reverb"), ("fx3b", 0x33, "Delay 2")]
+    sel_off = {"fx1a": 0x39, "fx1b": 0x3A, "fx2b": 0x3B, "fx2a": 0x3C, "fx3": 0x3D}
+    for box, base, label in boxes:
+        for i, col in enumerate(COLOURS):
+            t = g(6, base + i)
+            if box == "fx1a" and t in BOOSTER_MAP:
+                t = BOOSTER_MAP[t]
+            elif box in ("fx1b", "fx2b") and t not in GEN1_FX_TYPES:
+                t = FX_PLACEHOLDER.get(t, 0)
+            elif box == "fx3" and t in REVERB_MAP:
+                t = REVERB_MAP[t]
+            c.put(f"fxbox_asgn_{box}_{col}", t)
+    for i, col in enumerate(COLOURS):
+        c.put(f"fxbox_layer_fx3_{col}", g(6, 0x36 + i))
+    for box, off in sel_off.items():
+        c.put(f"fxbox_sel_{box}", min(g(6, off), 2))
+
+    # ---- which of each shared pair is "active" on the Gen 1 panel -----------------------
+    bst_on, mod_on = g(0, 0x10), g(1, 0x00)
+    dly_on, fx_on = g(5, 0x00), g(3, 0x00)
+    c.put("fx_active_ab_fx1", 0 if (bst_on or not mod_on) else 1)
+    c.put("fx_active_ab_fx2", 0 if (dly_on or not fx_on) else 1)
+    if bst_on and mod_on:
+        c.note("Booster and MOD are both ON (Gen 1 panel shows only one of the pair)" +
+               (": MOD switched off (--strict-panel)" if STRICT_PANEL else ": both kept on"))
+        if STRICT_PANEL:
+            c.put("fx1_on_off", 0)
+    if dly_on and fx_on:
+        c.note("Delay and FX are both ON (Gen 1 panel shows only one of the pair)" +
+               (": FX switched off (--strict-panel)" if STRICT_PANEL else ": both kept on"))
+        if STRICT_PANEL:
+            c.put("fx2_on_off", 0)
+
+    # ---- things that cannot be carried over ---------------------------------------------
+    if g(6, 0x16):
+        c.note(f"Contour {g(6, 0x17) + 1} is ON in the MkII patch - Gen 1 has no Contour (tone will differ)")
+    if g(6, 0x14):
+        c.note("MkII Solo EQ is ON - Gen 1 has no Solo EQ")
+    c.P["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
+    return c
+
+
+# --------------------------------------------------------------------------------------
 def load_template():
     return json.loads(zlib.decompress(base64.b64decode(TEMPLATE_B64)).decode("utf-8"))
 
 
-def put(params, key, val, log):
-    if key in params:
-        params[key] = val
-    else:
-        log.append(f"skipped (not in Gen 1 file): {key}")
-
-
-def put2(params, base, hi, lo, log):
-    put(params, base, hi * 128 + lo, log)
-    put(params, base + "_h", hi, log)
-    put(params, base + "_l", lo, log)
-
-
-def block(blocks, name, log):
-    v = blocks.get(name)
-    if v is None:
-        log.append(f"block {name} missing in source - left at template default")
-        return None
-    return [hx(x) for x in v]
-
-
-def convert_patch(blocks, tpl_patch, log):
-    P = copy.deepcopy(tpl_patch)
-    p = P["params"]
-
-    raw = block(blocks, "UserPatch%PatchName", log)
-    if raw:
-        name = bytes(raw).decode("ascii", "replace").rstrip()
-        for i, c in enumerate(raw):
-            put(p, f"patch_name{i+1}", c, log)
-        p["patchname"] = name
-        P["name"] = name.ljust(16)
-
-    p0 = block(blocks, "UserPatch%Patch_0", log)
-    if p0:
-        for key, off in OFFSETS.items():
-            if key.startswith("od_ds_") and 48 <= off <= 62:
-                put(p, key, p0[off - 48], log)
-            elif key.startswith("preamp_a_") and 80 <= off <= 111:
-                put(p, key, p0[off - 80 + 16], log)
-        if p0[17] > MAX_MK1_AMP:
-            log.append(f"amp type {p0[17]} is not a Gen 1 amp - set to BROWN ({FALLBACK_AMP}); check it in Tone Studio")
-            p["preamp_a_type"] = FALLBACK_AMP
-
-    for n in (1, 2):
-        blk = block(blocks, f"UserPatch%Fx({n})", log)
-        if not blk:
-            continue
-        put(p, f"fx{n}_on_off", blk[0], log)
-        put(p, f"fx{n}_fx_type", blk[1], log)
-        i = 2
-        for grp, names in FX_GROUPS:
-            for nm in names:
-                put(p, f"fx{n}_{grp}_{nm}", blk[i], log)
-                i += 1
-
-    for n, pre in ((1, "delay_"), (2, "delay2_")):
-        d = block(blocks, f"UserPatch%Delay({n})", log)
-        if not d:
-            continue
-        i = 0
-        for f in DELAY_FIELDS:
-            if f.endswith("*"):
-                put2(p, pre + f[:-1], d[i], d[i + 1], log)
-                i += 2
-            else:
-                put(p, pre + f, d[i], log)
-                i += 1
-
-    r = block(blocks, "UserPatch%Patch_1", log)
-    if r:
-        i = 0
-        for f in REVERB_FIELDS:
-            if f.endswith("*"):
-                put2(p, "reverb_" + f[:-1], r[i], r[i + 1], log)
-                i += 2
-            else:
-                put(p, "reverb_" + f, r[i], log)
-                i += 1
-
-    put(p, "fxbox_asgn_fx1a_g", p["od_ds_type"], log); put(p, "fxbox_sel_fx1a", 0, log)
-    put(p, "fxbox_asgn_fx1b_g", p["fx1_fx_type"], log); put(p, "fxbox_sel_fx1b", 0, log)
-    put(p, "fxbox_asgn_fx2a_g", p["delay_type"], log); put(p, "fxbox_sel_fx2a", 0, log)
-    put(p, "fxbox_asgn_fx2b_g", p["fx2_fx_type"], log); put(p, "fxbox_sel_fx2b", 0, log)
-    put(p, "fxbox_asgn_fx3_g", p["reverb_type"], log); put(p, "fxbox_sel_fx3", 0, log)
-    if p["od_ds_on_off"] and p["fx1_on_off"]:
-        log.append("BOOSTER and MOD are both on; Gen 1 runs one at a time - kept BOOSTER, MOD turned off")
-        p["fx1_on_off"] = 0
-    put(p, "fx_active_ab_fx1", 0 if p["od_ds_on_off"] else 1, log)
-    if p["delay_on_off"] and p["fx2_on_off"]:
-        log.append("DELAY and FX2 are both on; Gen 1 runs one at a time - kept DELAY, FX2 turned off")
-        p["fx2_on_off"] = 0
-    put(p, "fx_active_ab_fx2", 0 if p["delay_on_off"] else 1, log)
-
-    P["id"] = str(random.randint(10**9, 10**10 - 1))
-    return P
+SLOTS = ["A: CH1", "A: CH2", "B: CH1", "B: CH2"]
 
 
 def convert_file(src_path):
@@ -163,18 +433,21 @@ def convert_file(src_path):
     tpl = load_template()
     out = copy.deepcopy(tpl)
     out["liveSetData"]["name"] = src.get("name", base)
+    out["liveSetData"]["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
     out["patchList"] = []
     k = 0
     for liveset in src["data"]:
         for patch in liveset:
             k += 1
-            log = []
-            P = convert_patch(patch.get("paramSet", {}), tpl["patchList"][0], log)
+            c = convert_patch(patch.get("paramSet", {}), tpl["patchList"][0])
+            P = c.P
             P["orderNumber"] = k
             P["liveSetId"] = out["liveSetData"]["id"]
+            P["patchNo"] = SLOTS[(k - 1) % len(SLOTS)]
+            P["category"] = "USER1"
             out["patchList"].append(P)
             print(f"- {fname}: patch {k} '{P['name'].strip()}'")
-            for line in sorted(set(log)):
+            for line in c.notes:
                 print("      *", line)
     out_path = os.path.join(folder, base + " (Gen1).tsl")
     json.dump(out, open(out_path, "w", encoding="utf-8"), separators=(",", ":"))
@@ -222,6 +495,5 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print("Error:", e)
-    # keep the window open when launched by double-click / drag-and-drop
     if os.name == "nt" and not os.environ.get("PROMPT"):
         input("\nPress Enter to close...")
