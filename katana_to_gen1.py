@@ -489,6 +489,16 @@ def free_name(path):
     return f"{root} {n}{ext}"
 
 
+def patch_label(blocks, fallback):
+    """patch name from the PatchName block, for reporting patches that can not be converted"""
+    try:
+        raw = bytes(int(x, 16) for x in blocks.get("UserPatch%PatchName", [])[:16])
+        name = bytes(b if 32 <= b < 127 else 32 for b in raw).decode("ascii").strip()
+    except (TypeError, ValueError):
+        name = ""
+    return name or fallback
+
+
 def convert_file(src_path, out_dir=None):
     """Convert one MkII .tsl file. Never raises: problems are reported in the Result."""
     res = Result(src_path)
@@ -539,9 +549,8 @@ def convert_file(src_path, out_dir=None):
             for patch in liveset:
                 blocks = patch.get("paramSet", {}) if isinstance(patch, dict) else {}
                 missing = [b.split("%")[1] for b in REQUIRED_BLOCKS if b not in blocks]
-                label = patch.get("memo") if isinstance(patch, dict) else ""
                 if missing:
-                    res.patches.append((label or f"patch {k + 1}",
+                    res.patches.append((patch_label(blocks, f"patch {k + 1}"),
                                         [f"SKIPPED: this patch is missing data ({', '.join(missing)}), "
                                          f"so it can not be converted safely."]))
                     continue

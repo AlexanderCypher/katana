@@ -62,4 +62,4 @@ Run the tests (standard library only):
 python -m unittest discover -s tests -v
 ```
 
-To include the check on real MkII patches, clone [katana-rs](https://github.com/syndicalt/katana-rs) and set `KATANA_SAMPLES` to its `assets/patches` folder. GitHub Actions does this on every push.
+To include the check on real MkII patches, clone [katana-rs](https://github.com/syndicalt/katana-rs) and set `KATANA_SAMPLES` to its `assets/patches` folder. GitHub Actions does this on every push. To also check the test rules against real Gen 1 patches you have, set `KATANA_GEN1_SAMPLES` to a folder of Gen 1 `.tsl` files.

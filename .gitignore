@@ -4,3 +4,5 @@ build/
 dist/
 *.spec
 *(Gen1)*.tsl
+tests/samples/
+tests/gen1_samples/
