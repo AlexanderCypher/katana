@@ -53,3 +53,13 @@ Variation amp voicing, Contour, Solo EQ, the second EQ, Cab Resonance, and the M
 A MkII `.tsl` stores each patch as blocks of hex bytes that are slices of the amp's memory map. The script rebuilds that memory image, then copies each parameter into a real Gen 1 patch, translating values that differ between generations. The Gen 1 structure is built into the script, so there are no other files to keep.
 
 The MkII memory map was checked against the parameter map from [FxFloorBoard / katana-rs](https://github.com/syndicalt/katana-rs). The Gen 1 effect numbers and value ranges were checked against BOSS TONE STUDIO for KATANA 4.0.
+
+## For developers
+
+Run the tests (standard library only):
+
+```
+python -m unittest discover -s tests -v
+```
+
+To include the check on real MkII patches, clone [katana-rs](https://github.com/syndicalt/katana-rs) and set `KATANA_SAMPLES` to its `assets/patches` folder. GitHub Actions does this on every push.

@@ -68,7 +68,8 @@ GEN1_FX_TYPES = {0, 1, 2, 3, 4, 6, 7, 9, 10, 12, 14, 15, 16, 18, 19, 20, 21, 22,
 FX_NAMES = {40: "PEDAL BEND"}
 FX_PLACEHOLDER = {40: 15}                                   # nearest Gen 1 type (used for non-active colour slots)
 
-REVERB_MAP = {}   # Gen 1 and MkII number reverb types the same way (0 Amb,1 Room,2 Hall1,3 Hall2,4 Plate,5 Spring,6 Mod) - confirmed from real Gen 1 presets
+# Reverb types need no translation: Gen 1 and MkII number them the same way
+# (0 Amb, 1 Room, 2 Hall1, 3 Hall2, 4 Plate, 5 Spring, 6 Mod) - confirmed from real Gen 1 presets
 
 # (Gen 1 name, number of bytes) in MkII memory order
 FX_GROUPS = [
@@ -371,10 +372,6 @@ def convert_patch(blocks, tpl_patch):
             c.put("reverb_" + name_, v)
         else:
             c.put2("reverb_" + name_, hi, lo)
-    rt = g(5, 0x41)
-    if rt in REVERB_MAP:
-        c.put("reverb_type", REVERB_MAP[rt])
-        c.note("Reverb Hall 1 -> Gen 1 Hall")
 
     # ---- pedal FX (wah / pedal bend / wah 95E, worked by an expression pedal) ----------
     for i, key in enumerate(PEDAL_FX_LAYOUT):
@@ -426,8 +423,6 @@ def convert_patch(blocks, tpl_patch):
                 t = BOOSTER_MAP[t]
             elif box in ("fx1b", "fx2b") and t not in GEN1_FX_TYPES:
                 t = FX_PLACEHOLDER.get(t, 0)
-            elif box == "fx3" and t in REVERB_MAP:
-                t = REVERB_MAP[t]
             c.put(f"fxbox_asgn_{box}_{col}", t)
     for i, col in enumerate(COLOURS):
         c.put(f"fxbox_layer_fx3_{col}", g(6, 0x36 + i))
@@ -766,6 +761,15 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print("Error:", e)
-        if os.name == "nt":
-            input("\nPress Enter to close...")
+        if sys.stdin is None:                    # windowed .exe: no console to print to
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                tk.Tk().withdraw()
+                messagebox.showerror("Katana Patch Converter", f"Something went wrong:\n{e}")
+            except Exception:
+                pass
+        else:
+            print("Error:", e)
+            if os.name == "nt":
+                input("\nPress Enter to close...")
