@@ -6,3 +6,7 @@ dist/
 *(Gen1)*.tsl
 tests/samples/
 tests/gen1_samples/
+
+# local tooling notes (not part of the app)
+CLAUDE.md
+.claude/
