@@ -148,6 +148,13 @@ class Synthetic(unittest.TestCase):
         done = self.write("x (Gen1).tsl", fake_mk2())
         self.assertEqual(k.convert_file(done).status, "skipped")
 
+    def test_batch_reports_progress(self):
+        files = [self.write(f"p{i}.tsl", fake_mk2()) for i in range(3)]
+        seen = []
+        results, ok = k.run_batch(files, progress=lambda d, t: seen.append((d, t)))
+        self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
+        self.assertEqual(ok, 3)
+
     def test_missing_blocks_are_skipped_not_guessed(self):
         data = fake_mk2()
         del data["data"][0][0]["paramSet"]["UserPatch%Fx(2)"]
