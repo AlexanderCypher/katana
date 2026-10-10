@@ -10,6 +10,8 @@ The new files are saved next to the originals as "<name> (Gen1).tsl" - import th
 
 Option (command line only):  --strict-panel   keep only one effect of each pair that shares a button
                              on the Gen 1 amp (Booster/Mod and Delay/FX).
+Live set for a gig:          --live-set "Set name" song1.tsl song2.tsl ...   (or "Build a live set..." in
+                             the window) puts patches in song order in one file, plus a printable set list.
 
 How it works: a MkII .tsl stores each patch as hex byte blocks that are slices of the amp's
 memory map. The script rebuilds that memory image, then copies every parameter it understands
@@ -564,6 +566,50 @@ def patch_label(blocks, fallback):
     return name or fallback
 
 
+class NotAPatchFile(Exception):
+    pass
+
+
+def open_tsl(path):
+    """read a .tsl file; returns (data, "gen1" | "mk2") or raises NotAPatchFile with a message for the user"""
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            src = json.load(fh)
+    except Exception:
+        raise NotAPatchFile("This does not look like a BOSS Tone Studio .tsl patch file.")
+    if not isinstance(src, dict):
+        raise NotAPatchFile("This does not look like a BOSS Tone Studio .tsl patch file.")
+    device = str(src.get("device", ""))
+    if "patchList" in src:
+        if not isinstance(src["patchList"], list) or not all(
+                isinstance(P, dict) and isinstance(P.get("params"), dict) for P in src["patchList"]):
+            raise NotAPatchFile("This Gen 1 file is damaged (its patch list can not be read).")
+        return src, "gen1"
+    if "data" not in src or "KATANA" not in device.upper():
+        raise NotAPatchFile(f"Not a Katana MkII patch file (found amp type '{device or 'unknown'}').")
+    if "GEN3" in device.upper().replace(" ", ""):
+        raise NotAPatchFile("This is a Katana Gen 3 patch file. Gen 3 stores patches in a different layout that "
+                            "this converter can not read yet - only MkII files can be converted.")
+    return src, "mk2"
+
+
+def mk2_patches(src, tpl_patch):
+    """yield (name, Conv, notes) for each patch of a MkII file; Conv is None when the patch is skipped"""
+    n = 0
+    for liveset in src.get("data") or []:
+        for patch in liveset if isinstance(liveset, list) else []:
+            n += 1
+            blocks = patch.get("paramSet", {}) if isinstance(patch, dict) else {}
+            missing = [b.split("%")[1] for b in REQUIRED_BLOCKS if b not in blocks]
+            if missing:
+                yield (patch_label(blocks, f"patch {n}"), None,
+                       [f"SKIPPED: this patch is missing data ({', '.join(missing)}), so it can not be "
+                        f"converted safely."])
+                continue
+            c = convert_patch(blocks, tpl_patch)
+            yield c.P["name"].strip() or f"patch {n}", c, c.notes
+
+
 def convert_file(src_path, out_dir=None):
     """Convert one MkII .tsl file. Never raises: problems are reported in the Result."""
     res = Result(src_path)
@@ -574,28 +620,13 @@ def convert_file(src_path, out_dir=None):
             res.message = "Already converted - skipped."
             return res
         try:
-            with open(src_path, encoding="utf-8-sig") as fh:
-                src = json.load(fh)
-        except Exception:
+            src, kind = open_tsl(src_path)
+        except NotAPatchFile as e:
             res.status = "error"
-            res.message = "This does not look like a BOSS Tone Studio .tsl patch file."
+            res.message = str(e)
             return res
-        if not isinstance(src, dict):
-            res.status = "error"
-            res.message = "This does not look like a BOSS Tone Studio .tsl patch file."
-            return res
-        device = str(src.get("device", ""))
-        if "patchList" in src:
-            res.message = f"Already a Gen 1 file (amp type '{device}') - nothing to convert."
-            return res
-        if "data" not in src or "KATANA" not in device.upper():
-            res.status = "error"
-            res.message = f"Not a Katana MkII patch file (found amp type '{device or 'unknown'}')."
-            return res
-        if "GEN3" in device.upper().replace(" ", ""):
-            res.status = "error"
-            res.message = ("This is a Katana Gen 3 patch file. Gen 3 stores patches in a different layout that "
-                           "this converter can not read yet - only MkII files can be converted.")
+        if kind == "gen1":
+            res.message = f"Already a Gen 1 file (amp type '{src.get('device', '')}') - nothing to convert."
             return res
 
         tpl = load_template()
@@ -610,27 +641,21 @@ def convert_file(src_path, out_dir=None):
             extra.append(f"File format revision {rev} has not been tested (MkII files are 0001 or 0002). "
                          f"Please listen carefully to this patch.")
         k = 0
-        for liveset in src["data"]:
-            for patch in liveset:
-                blocks = patch.get("paramSet", {}) if isinstance(patch, dict) else {}
-                missing = [b.split("%")[1] for b in REQUIRED_BLOCKS if b not in blocks]
-                if missing:
-                    res.patches.append((patch_label(blocks, f"patch {k + 1}"),
-                                        [f"SKIPPED: this patch is missing data ({', '.join(missing)}), "
-                                         f"so it can not be converted safely."]))
-                    continue
-                k += 1
-                c = convert_patch(blocks, tpl["patchList"][0])
-                P = c.P
-                while P["id"] in used_ids:
-                    P["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
-                used_ids.add(P["id"])
-                P["orderNumber"] = k
-                P["liveSetId"] = out["liveSetData"]["id"]
-                P["patchNo"] = SLOTS[k - 1] if k <= len(SLOTS) else None
-                P["category"] = "USER1"
-                out["patchList"].append(P)
-                res.patches.append((P["name"].strip() or f"patch {k}", extra + c.notes if k == 1 else c.notes))
+        for label, c, notes in mk2_patches(src, tpl["patchList"][0]):
+            if c is None:
+                res.patches.append((label, notes))
+                continue
+            k += 1
+            P = c.P
+            while P["id"] in used_ids:
+                P["id"] = str(random.randint(10 ** 9, 10 ** 10 - 1))
+            used_ids.add(P["id"])
+            P["orderNumber"] = k
+            P["liveSetId"] = out["liveSetData"]["id"]
+            P["patchNo"] = SLOTS[k - 1] if k <= len(SLOTS) else None
+            P["category"] = "USER1"
+            out["patchList"].append(P)
+            res.patches.append((P["name"].strip() or f"patch {k}", extra + c.notes if k == 1 else c.notes))
         if not out["patchList"]:
             res.status = "error"
             res.message = "No patches could be converted from this file."
@@ -666,6 +691,151 @@ def run_batch(files, out_dir=None):
     results = [convert_file(f, out_dir) for f in files]
     ok = sum(r.status == "ok" for r in results)
     return results, ok
+
+
+# --------------------------------------------------------------------------------------
+# Live sets: put Gen 1 patches (or MkII patches, converted on the fly) in song order for a gig
+# --------------------------------------------------------------------------------------
+LIVE_SET_NAME_MAX = 40
+PATCH_LEVEL_SPREAD = 20                  # patch_level this far from the set's usual value gets a warning
+AMP_LEVEL_SPREAD = 35                    # amp level (preamp_a_level) - wider, high-gain patches sit lower
+
+
+class SetEntry:
+    """one patch in a live set"""
+
+    def __init__(self, patch, source, notes=()):
+        self.patch = patch               # Gen 1 patch dict (a private copy)
+        self.source = source             # file it came from
+        self.notes = list(notes)         # conversion notes
+        self.song_note = ""
+
+    @property
+    def name(self):
+        return self.patch.get("name", "").strip() or "(no name)"
+
+
+def new_id(taken=()):
+    while True:
+        i = str(random.randint(10 ** 9, 10 ** 10 - 1))
+        if i not in taken:
+            return i
+
+
+def load_patches(path):
+    """All patches in a Gen 1 or MkII .tsl as SetEntry objects (MkII patches are converted).
+    Returns (entries, problems); never raises."""
+    name = os.path.basename(path)
+    try:
+        src, kind = open_tsl(path)
+    except NotAPatchFile as e:
+        return [], [f"{name}: {e}"]
+    except Exception as e:
+        return [], [f"{name}: could not be read ({type(e).__name__}: {e})"]
+    if kind == "gen1":
+        return [SetEntry(copy.deepcopy(P), name) for P in src["patchList"]], []
+    entries, problems = [], []
+    tpl = load_template()["patchList"][0]
+    for label, c, notes in mk2_patches(src, tpl):
+        if c is None:
+            problems.append(f"{name}: {label} - {notes[0]}")
+        else:
+            entries.append(SetEntry(c.P, name, ["converted from MkII"] + notes))
+    if not entries and not problems:
+        problems.append(f"{name}: no patches found")
+    return entries, problems
+
+
+def rename_patch(patch, new_name):
+    """set a patch name everywhere Gen 1 keeps it (16 ASCII characters)"""
+    clean = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in new_name)[:16]
+    p = patch["params"]
+    for i, ch in enumerate(clean.ljust(16)):
+        if f"patch_name{i + 1}" in p:
+            p[f"patch_name{i + 1}"] = ord(ch)
+    if "patchname" in p:
+        p["patchname"] = clean.rstrip()
+    patch["name"] = clean.ljust(16)
+
+
+def build_live_set(name, entries, use_channels=True):
+    """Gen 1 .tsl data for a live set; patches keep the given order. With use_channels the first
+    eight patches are placed on the amp's channels A: CH1 .. B: CH4."""
+    tpl = load_template()
+    out = {"device": tpl["device"], "version": tpl["version"],
+           "liveSetData": dict(tpl["liveSetData"], id=new_id(), name=(name.strip() or "Live set")[:LIVE_SET_NAME_MAX],
+                               image=None, path=None, url=None, orderNumber=1),
+           "patchList": []}
+    taken = set()
+    for i, e in enumerate(entries):
+        P = copy.deepcopy(e.patch)
+        P["id"] = new_id(taken)
+        taken.add(P["id"])
+        P["liveSetId"] = out["liveSetData"]["id"]
+        P["orderNumber"] = i + 1
+        P["patchNo"] = SLOTS[i] if use_channels and i < len(SLOTS) else None
+        P["logPatchName"] = None
+        P["tcPatch"] = False
+        P["note"] = e.song_note.strip() or None
+        out["patchList"].append(P)
+    return out
+
+
+def level_warnings(entries):
+    """patches whose volume settings are far from the rest of the set (a hint only - check by ear)"""
+    def median(xs):
+        xs = sorted(xs)
+        return xs[len(xs) // 2]
+    warn = []
+    if len(entries) < 2:
+        return warn
+    for key, spread, what in (("patch_level", PATCH_LEVEL_SPREAD, "patch level"),
+                              ("preamp_a_level", AMP_LEVEL_SPREAD, "amp level")):
+        vals = [e.patch["params"].get(key) for e in entries]
+        if None in vals:
+            continue
+        mid = median(vals)
+        for i, (e, v) in enumerate(zip(entries, vals)):
+            if abs(v - mid) >= spread:
+                warn.append(f"{i + 1}. {e.name}: {what} {v} ({'louder' if v > mid else 'quieter'} than the "
+                            f"set's usual {mid}) - check the volume against the other songs")
+    return warn
+
+
+def slot_label(i, use_channels):
+    return SLOTS[i] if use_channels and i < len(SLOTS) else "--"
+
+
+def set_list_text(name, entries, use_channels=True):
+    """printable set list: order, amp channel, patch name, song notes"""
+    lines = [name.strip() or "Live set", "=" * max(len(name.strip()), 8), ""]
+    for i, e in enumerate(entries):
+        lines.append(f"{i + 1:>2}. {slot_label(i, use_channels):<7} {e.name}")
+        if e.song_note.strip():
+            lines.append(f"              {e.song_note.strip()}")
+    if use_channels and len(entries) > len(SLOTS):
+        lines += ["", f"Songs {len(SLOTS) + 1}+ are not on an amp channel: load them in BOSS TONE STUDIO "
+                      f"between songs, or pick fewer patches."]
+    return "\n".join(lines) + "\n"
+
+
+def safe_filename(name):
+    s = "".join("_" if ch in '<>:"/\\|?*' or ord(ch) < 32 else ch for ch in name).strip(" .")
+    return s or "Live set"
+
+
+def save_live_set(folder, name, entries, use_channels=True):
+    """write '<name> (Live Set).tsl' and '<name> (Set List).txt'; never overwrites. Returns both paths."""
+    folder = os.path.normpath(folder)
+    os.makedirs(folder, exist_ok=True)
+    base = safe_filename(name)
+    tsl = free_name(os.path.join(folder, base + " (Live Set).tsl"))
+    with open(tsl, "w", encoding="utf-8") as fh:
+        json.dump(build_live_set(name, entries, use_channels), fh, separators=(",", ":"))
+    txt = free_name(os.path.join(folder, base + " (Set List).txt"))
+    with open(txt, "w", encoding="utf-8") as fh:
+        fh.write(set_list_text(name, entries, use_channels))
+    return tsl, txt
 
 
 # --------------------------------------------------------------------------------------
@@ -738,6 +908,8 @@ def run_window(preselected=()):
     bottom.pack(fill="x", padx=16, pady=(0, 14))
     open_btn = ttk.Button(bottom, text="Open the folder with my new files", state="disabled")
     open_btn.pack(side="left")
+    ttk.Button(bottom, text="Build a live set...",
+               command=lambda: open_live_set_window(root)).pack(side="left", padx=(8, 0))
     ttk.Button(bottom, text="How do I use this?",
                command=lambda: messagebox.showinfo("How to use", HELP_TEXT)).pack(side="left", padx=8)
     ttk.Button(bottom, text="Close", command=root.destroy).pack(side="right")
@@ -802,6 +974,197 @@ def run_window(preselected=()):
     root.mainloop()
 
 
+LIVE_SET_HELP = (
+    "Put your patches in the order you play them at the gig, then save one file to import into "
+    "BOSS TONE STUDIO.\n\n"
+    "- Add patches: Gen 1 .tsl files, converted (Gen1).tsl files, or MkII files (converted for you).\n"
+    "- Move up / Move down sets the song order. Rename gives a patch a song name (16 characters).\n"
+    "- Song note is printed on the set list (for example: 'capo 2, solo on B: CH2').\n"
+    "- With 'Put the first 8 on the amp channels' ticked, songs 1-8 go to A: CH1 .. B: CH4.\n"
+    "- The level check points out patches set much louder or quieter than the rest. It reads the "
+    "settings only, so always check the volume by ear at rehearsal.\n\n"
+    "Save writes '<name> (Live Set).tsl' and a printable '<name> (Set List).txt'. Existing files are "
+    "never overwritten."
+)
+
+
+def open_live_set_window(parent):
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, simpledialog, ttk
+
+    win = tk.Toplevel(parent)
+    win.title("Live Set Builder")
+    win.geometry("820x620")
+    win.minsize(680, 480)
+    entries = []
+    state = {"last_dir": None}
+
+    head = ttk.Frame(win)
+    head.pack(fill="x", padx=16, pady=(14, 6))
+    ttk.Label(head, text="Live set name", font=("Segoe UI", 11, "bold")).pack(side="left")
+    name_var = tk.StringVar(value="Gig")
+    ttk.Entry(head, textvariable=name_var, width=40, font=("Segoe UI", 11)).pack(side="left", padx=10)
+    chan_var = tk.BooleanVar(value=True)
+    ttk.Checkbutton(head, text="Put the first 8 on the amp channels", variable=chan_var,
+                    command=lambda: refresh()).pack(side="left")
+
+    mid = ttk.Frame(win)
+    mid.pack(fill="both", expand=True, padx=16)
+    lb = tk.Listbox(mid, font=("Consolas", 11), activestyle="none", selectmode="browse", exportselection=False)
+    lsb = ttk.Scrollbar(mid, command=lb.yview)
+    lb.configure(yscrollcommand=lsb.set)
+    lb.pack(side="left", fill="both", expand=True)
+    lsb.pack(side="left", fill="y")
+    side = ttk.Frame(mid)
+    side.pack(side="left", fill="y", padx=(10, 0))
+
+    info = tk.Text(win, wrap="word", font=("Consolas", 10), height=9, state="disabled")
+    info.pack(fill="x", padx=16, pady=(8, 6))
+
+    def show_info(text):
+        info.configure(state="normal")
+        info.delete("1.0", "end")
+        info.insert("end", text)
+        info.configure(state="disabled")
+
+    def selected():
+        sel = lb.curselection()
+        return sel[0] if sel else None
+
+    def refresh(select=None):
+        use = chan_var.get()
+        lb.delete(0, "end")
+        for i, e in enumerate(entries):
+            mark = "  *" if e.song_note.strip() else ""
+            lb.insert("end", f"{i + 1:>2}. {slot_label(i, use):<7} {e.name:<16}  ({e.source}){mark}")
+        if select is not None and entries:
+            select = max(0, min(select, len(entries) - 1))
+            lb.selection_set(select)
+            lb.see(select)
+        details()
+
+    def details(_event=None):
+        i = selected()
+        lines = []
+        if i is not None:
+            e = entries[i]
+            lines.append(f"{i + 1}. {e.name}   from {e.source}")
+            if e.song_note.strip():
+                lines.append(f"   Song note: {e.song_note.strip()}")
+            lines += [f"   * {n}" for n in e.notes]
+            lines.append("")
+        if not entries:
+            lines.append("Click 'Add patches...' to start.")
+        else:
+            warn = level_warnings(entries)
+            lines.append("Level check: " + ("no big volume jumps found in the settings." if not warn else ""))
+            lines += [f"   ! {w}" for w in warn]
+            if chan_var.get() and len(entries) > len(SLOTS):
+                lines.append(f"   Songs {len(SLOTS) + 1}+ have no amp channel; load them between songs.")
+        show_info("\n".join(lines))
+
+    def add():
+        files = filedialog.askopenfilenames(parent=win, title="Choose patch files for the live set",
+                                            initialdir=state["last_dir"],
+                                            filetypes=[("Katana patch files", "*.tsl"), ("All files", "*.*")])
+        problems = []
+        for f in files:
+            state["last_dir"] = os.path.dirname(f)
+            new, bad = load_patches(f)
+            entries.extend(new)
+            problems += bad
+        refresh(select=len(entries) - 1)
+        if problems:
+            messagebox.showwarning("Some patches were not added", "\n".join(problems), parent=win)
+
+    def remove():
+        i = selected()
+        if i is not None:
+            del entries[i]
+            refresh(select=i)
+
+    def move(step):
+        i = selected()
+        if i is None or not 0 <= i + step < len(entries):
+            return
+        entries[i], entries[i + step] = entries[i + step], entries[i]
+        refresh(select=i + step)
+
+    def rename():
+        i = selected()
+        if i is None:
+            return
+        s = simpledialog.askstring("Rename patch", "New patch name (up to 16 characters):",
+                                   initialvalue=entries[i].name, parent=win)
+        if s is not None and s.strip():
+            rename_patch(entries[i].patch, s.strip())
+            refresh(select=i)
+
+    def song_note():
+        i = selected()
+        if i is None:
+            return
+        s = simpledialog.askstring("Song note", "Note for the set list (song, capo, which channel for "
+                                   "the solo...):", initialvalue=entries[i].song_note, parent=win)
+        if s is not None:
+            entries[i].song_note = s
+            refresh(select=i)
+
+    def save():
+        if not entries:
+            messagebox.showinfo("Live set", "Add some patches first.", parent=win)
+            return
+        folder = filedialog.askdirectory(parent=win, title="Choose where to save the live set",
+                                         initialdir=state["last_dir"])
+        if not folder:
+            return
+        try:
+            tsl, txt = save_live_set(folder, name_var.get(), entries, chan_var.get())
+        except OSError as e:
+            messagebox.showerror("Live set", f"Could not save: {e}", parent=win)
+            return
+        messagebox.showinfo("Live set saved", f"Saved:\n{tsl}\n{txt}\n\nImport the .tsl file in BOSS TONE "
+                            f"STUDIO; print the .txt for the stage.", parent=win)
+
+    for label, cmd in (("Add patches...", add), ("Remove", remove), ("Move up", lambda: move(-1)),
+                       ("Move down", lambda: move(1)), ("Rename...", rename), ("Song note...", song_note)):
+        ttk.Button(side, text=label, command=cmd).pack(fill="x", pady=2)
+    lb.bind("<<ListboxSelect>>", details)
+    lb.bind("<Delete>", lambda _e: remove())
+    lb.bind("<Alt-Up>", lambda _e: move(-1))
+    lb.bind("<Alt-Down>", lambda _e: move(1))
+
+    bottom = ttk.Frame(win)
+    bottom.pack(fill="x", padx=16, pady=(0, 14))
+    ttk.Button(bottom, text="Save live set", command=save).pack(side="left")
+    ttk.Button(bottom, text="How does this work?",
+               command=lambda: messagebox.showinfo("Live sets", LIVE_SET_HELP, parent=win)).pack(side="left", padx=8)
+    ttk.Button(bottom, text="Close", command=win.destroy).pack(side="right")
+    refresh()
+    return win, entries
+
+
+def run_live_set_text(name, files):
+    """--live-set NAME FILE...: build a live set without the window"""
+    entries, problems = [], []
+    for f in files:
+        new, bad = load_patches(f)
+        entries += new
+        problems += bad
+    for p in problems:
+        print("[!!]", p)
+    if not entries:
+        print("No patches to put in the live set.")
+        return None
+    folder = os.path.dirname(os.path.abspath(files[0]))
+    tsl, txt = save_live_set(folder, name, entries)
+    print(set_list_text(name, entries))
+    for w in level_warnings(entries):
+        print("[level]", w)
+    print(f"New files:\n  {tsl}\n  {txt}")
+    return tsl
+
+
 def run_text_mode(files):
     if not files:
         print("Type or drag the path of a .tsl file here and press Enter (empty = quit):")
@@ -819,7 +1182,20 @@ def run_text_mode(files):
 
 
 def main():
-    files = [a.strip('"') for a in sys.argv[1:] if not a.startswith("--")]
+    args = sys.argv[1:]
+    if "--live-set" in args:
+        i = args.index("--live-set")
+        if i + 1 >= len(args):
+            print('Usage: katana_to_gen1.py --live-set "Set name" patch1.tsl patch2.tsl ...')
+            return
+        name = args[i + 1]
+        files = [a.strip('"') for a in args[:i] + args[i + 2:] if not a.startswith("--")]
+        if not files:
+            print("Give the patch files to put in the live set, in song order.")
+            return
+        run_live_set_text(name, files)
+        return
+    files = [a.strip('"') for a in args if not a.startswith("--")]
     if "--cli" in sys.argv:
         run_text_mode(files)
         return

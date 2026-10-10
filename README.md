@@ -30,6 +30,19 @@ python katana_to_gen1.py --cli "My Patch.tsl"      # text only, no window
 
 Your original files are never changed, and existing files are never overwritten.
 
+## Live sets for gigs
+
+Click **Build a live set...** to put patches in the order you play them:
+
+1. **Add patches...** takes Gen 1 `.tsl` files, converted `(Gen1).tsl` files, or MkII files (converted for you).
+2. Use **Move up / Move down** to set the song order. **Rename...** gives a patch a song name, and **Song note...** adds a note for the set list (for example "capo 2").
+3. Leave **Put the first 8 on the amp channels** ticked to place songs 1-8 on A: CH1 to B: CH4.
+4. **Save live set** writes `<name> (Live Set).tsl` to import in BOSS TONE STUDIO, plus a printable `<name> (Set List).txt`.
+
+A level check points out patches set much louder or quieter than the rest of the set. It only reads the settings, so always check volumes by ear at rehearsal.
+
+From a terminal: `python katana_to_gen1.py --live-set "Friday gig" song1.tsl song2.tsl song3.tsl`
+
 ## What the notes mean
 
 After converting, every patch is listed. Lines starting with `*` are settings the Gen 1 cannot reproduce exactly. The patch is still converted; listen to it and adjust to taste.

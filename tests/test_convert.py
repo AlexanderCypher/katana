@@ -7,7 +7,7 @@ CI fills it from github.com/syndicalt/katana-rs (assets/patches); without it tho
 Real Gen 1 patches (confirmed working on a Gen 1 amp) are read from KATANA_GEN1_SAMPLES; they are not
 kept in the repo because they are other people's patches.
 """
-import glob, json, os, sys, tempfile, unittest
+import contextlib, copy, glob, io, json, os, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -209,6 +209,110 @@ class RealGen1Patches(unittest.TestCase):
                 r = k.convert_file(f, out)
                 self.assertEqual(r.status, "skipped", f)
                 self.assertIsNone(r.out_path)
+
+    def test_live_set_from_real_patches(self):
+        entries = []
+        for f in gen1_files():
+            new, problems = k.load_patches(f)
+            self.assertEqual(problems, [], f)
+            entries += new
+        with tempfile.TemporaryDirectory() as out:
+            tsl, _ = k.save_live_set(out, "Real set", entries)
+            data = load(tsl)
+        self.assertEqual(len(data["patchList"]), len(entries))
+        for P, e in zip(data["patchList"], entries):
+            self.assertEqual(P["params"], e.patch["params"])        # settings untouched
+
+
+class LiveSet(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, name, data):
+        path = os.path.join(self.dir, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        return path
+
+    def gen1_file(self, names):
+        """a converted Gen 1 file holding one patch per name"""
+        data = fake_mk2()
+        data["data"] = [[copy.deepcopy(data["data"][0][0]) for _ in names]]
+        for P, n in zip(data["data"][0], names):
+            P["paramSet"]["UserPatch%PatchName"] = [f"{ord(ch):02X}" for ch in n.ljust(16)]
+        return k.convert_file(self.write("src.tsl", data)).out_path
+
+    def test_order_channels_and_ids(self):
+        entries, problems = k.load_patches(self.gen1_file([f"SONG {i}" for i in range(1, 11)]))
+        self.assertEqual((len(entries), problems), (10, []))
+        entries.reverse()
+        entries[0].song_note = "capo 2"
+        tsl, txt = k.save_live_set(self.dir, "Friday: pub/gig", entries)
+        self.assertEqual(os.path.basename(tsl), "Friday_ pub_gig (Live Set).tsl")
+        data = load(tsl)
+        self.assertEqual(data["device"], "GT")
+        self.assertEqual(data["liveSetData"]["name"], "Friday: pub/gig")
+        pl = data["patchList"]
+        self.assertEqual([P["name"].strip() for P in pl], [f"SONG {i}" for i in range(10, 0, -1)])
+        self.assertEqual([P["orderNumber"] for P in pl], list(range(1, 11)))
+        self.assertEqual([P["patchNo"] for P in pl], k.SLOTS + [None, None])
+        self.assertEqual(len({P["id"] for P in pl}), 10)
+        self.assertTrue(all(P["liveSetId"] == data["liveSetData"]["id"] for P in pl))
+        self.assertEqual(pl[0]["note"], "capo 2")
+        for P in pl:
+            check_patch(self, P, P["name"])
+        text = read(txt)
+        self.assertIn(" 1. A: CH1  SONG 10", text)
+        self.assertIn("capo 2", text)
+        self.assertIn("Songs 9+", text)
+        tsl2, _ = k.save_live_set(self.dir, "Friday: pub/gig", entries)     # never overwrites
+        self.assertNotEqual(tsl, tsl2)
+
+    def test_without_channels(self):
+        entries, _ = k.load_patches(self.gen1_file(["A", "B"]))
+        pl = k.build_live_set("x", entries, use_channels=False)["patchList"]
+        self.assertEqual([P["patchNo"] for P in pl], [None, None])
+
+    def test_mk2_files_are_converted_and_others_refused(self):
+        entries, problems = k.load_patches(self.write("mk2.tsl", fake_mk2()))
+        self.assertEqual(len(entries), 1)
+        self.assertIn("converted from MkII", entries[0].notes)
+        _, problems = k.load_patches(self.write("g3.tsl", {"device": "KATANA Gen3", "data": []}))
+        self.assertIn("Gen 3", problems[0])
+        _, problems = k.load_patches(self.write("junk.tsl", [1]))
+        self.assertTrue(problems)
+
+    def test_rename(self):
+        entries, _ = k.load_patches(self.gen1_file(["OLD"]))
+        k.rename_patch(entries[0].patch, "Thunderstruck Intro!")      # cut to 16
+        P = k.build_live_set("x", entries)["patchList"][0]
+        check_patch(self, P, "renamed")
+        self.assertEqual(P["params"]["patchname"], "Thunderstruck In")
+
+    def test_level_warnings(self):
+        entries, _ = k.load_patches(self.gen1_file(["A", "B", "C"]))
+        self.assertEqual(k.level_warnings(entries), [])
+        entries[1].patch["params"]["patch_level"] += 30
+        warn = k.level_warnings(entries)
+        self.assertEqual(len(warn), 1)
+        self.assertIn("2. B: patch level", warn[0])
+        self.assertIn("louder", warn[0])
+
+    def test_command_line(self):
+        src = self.gen1_file(["ONE", "TWO"])
+        old = sys.argv
+        try:
+            sys.argv = ["katana_to_gen1.py", "--live-set", "Cli set", src]
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                k.main()
+        finally:
+            sys.argv = old
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "Cli set (Live Set).tsl")))
+        self.assertIn(" 2. A: CH2  TWO", out.getvalue())
 
 
 if __name__ == "__main__":
