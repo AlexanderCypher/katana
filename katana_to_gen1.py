@@ -857,7 +857,7 @@ HELP_TEXT = (
     "Ctrl+L opens the live set builder, F1 shows this help."
 )
 
-DEFAULT_SETTINGS = {"last_dir": None, "strict_panel": False, "geometry": None}
+DEFAULT_SETTINGS = {"last_dir": None, "strict_panel": False, "geometry": None, "theme": "modern"}
 
 
 def app_folder():
@@ -888,6 +888,8 @@ def load_settings():
         pass
     if s["last_dir"] and not os.path.isdir(str(s["last_dir"])):
         s["last_dir"] = None
+    if s["theme"] not in ("modern", "xp"):
+        s["theme"] = "modern"
     return s
 
 
@@ -948,6 +950,80 @@ def result_rows(results):
     return rows
 
 
+THEMES = {"modern": "Modern look", "xp": "Windows XP look"}
+XP = {"face": "#ECE9D8", "luna": "#0A54E3", "luna_text": "#DCE6FF", "border": "#003C74", "field": "#7F9DB9",
+      "select": "#316AC5", "hover": "#FFE7A2", "pressed": "#E3E1D6", "green": "#2FB12F", "step": "#215DC6"}
+
+
+def apply_theme(win, name):
+    """Switch every ttk style and plain tk widget under `win` to a theme: "modern" (the system look)
+    or "xp" (Windows XP Luna: blue header band, Tahoma, beige face, green progress bar)."""
+    import tkinter as tk
+    from tkinter import ttk
+    style = ttk.Style(win)
+    root = win.winfo_toplevel()._root()
+    if not hasattr(root, "_native_theme"):
+        root._native_theme = style.theme_use()
+    xp = name == "xp"
+    style.theme_use("clam" if xp else root._native_theme)
+    if os.name == "nt":
+        ui = "Tahoma" if xp else "Segoe UI"
+    else:
+        ui = "TkDefaultFont"
+    mono = ("Lucida Console", 9) if xp and os.name == "nt" else None
+
+    style.configure("Big.TButton", font=(ui, 11 if xp else 12, "bold"), padding=(14, 8))
+    style.configure("Sub.TLabel", font=(ui, 10 if xp else 11))
+    style.configure("Step.TLabel", font=(ui, 11, "bold"))
+    style.configure("HeaderTitle.TLabel", font=(("Trebuchet MS" if xp and os.name == "nt" else ui), 18, "bold"))
+    style.configure("HeaderSub.TLabel", font=(ui, 10 if xp else 11))
+    style.configure("Treeview", rowheight=22 if xp else 24)
+    if xp:
+        c = XP
+        style.configure(".", background=c["face"], foreground="black", font=(ui, 9), troughcolor=c["face"])
+        style.configure("Header.TFrame", background=c["luna"])
+        style.configure("HeaderTitle.TLabel", background=c["luna"], foreground="white")
+        style.configure("HeaderSub.TLabel", background=c["luna"], foreground=c["luna_text"])
+        style.configure("Step.TLabel", foreground=c["step"])
+        style.configure("TButton", background="#F4F3EE", bordercolor=c["border"], lightcolor="#FFFFFF",
+                        darkcolor="#D6D0C5", padding=(10, 4))
+        style.map("TButton", background=[("pressed", c["pressed"]), ("active", "#FDF8E8")],
+                  lightcolor=[("pressed", c["pressed"]), ("active", c["hover"])],
+                  darkcolor=[("active", "#F8B330")])
+        style.configure("TCheckbutton", background=c["face"], indicatorbackground="white",
+                        indicatorforeground="#21A121", upperbordercolor=c["border"], lowerbordercolor=c["border"])
+        style.map("TCheckbutton", background=[("active", c["face"])])
+        style.configure("Horizontal.TProgressbar", background=c["green"], troughcolor="white",
+                        bordercolor=c["field"], lightcolor="#7CE07C", darkcolor="#1E8A1E")
+        style.configure("Treeview", background="white", fieldbackground="white", foreground="black",
+                        bordercolor=c["field"], font=(ui, 9))
+        style.map("Treeview", background=[("selected", c["select"])], foreground=[("selected", "white")])
+        style.configure("Treeview.Heading", background="#EBEADB", font=(ui, 9), bordercolor="#C7C5B2",
+                        lightcolor="#FFFFFF", darkcolor="#D6D2C2")
+        style.configure("TScrollbar", background="#C1D3FB", troughcolor="#F4F3EE", bordercolor="#9EB6EA",
+                        arrowcolor="#4D6185", lightcolor="#E1EAFE", darkcolor="#9DB4EC")
+        style.configure("TEntry", fieldbackground="white", bordercolor=c["field"], lightcolor="white")
+        style.configure("TPanedwindow", background=c["face"])
+
+    def recolor(w):
+        if isinstance(w, (tk.Tk, tk.Toplevel, tk.Text, tk.Listbox)):
+            opts = ("background",) if isinstance(w, (tk.Tk, tk.Toplevel)) else (
+                "background", "foreground", "font", "selectbackground", "selectforeground")
+            if not hasattr(w, "_native_look"):
+                w._native_look = {o: w.cget(o) for o in opts}
+            if not xp:
+                w.configure(**w._native_look)
+            elif isinstance(w, (tk.Tk, tk.Toplevel)):
+                w.configure(background=XP["face"])
+            else:
+                w.configure(background="white", foreground="black", selectbackground=XP["select"],
+                            selectforeground="white", **({"font": mono} if mono else {}))
+        for child in w.winfo_children():
+            recolor(child)
+
+    recolor(win)
+
+
 def run_window(preselected=()):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
@@ -968,19 +1044,11 @@ def run_window(preselected=()):
         pass
     state = {"files": [], "out_dir": None, "busy": False, "details": {}}
 
-    ui = "Segoe UI" if os.name == "nt" else "TkDefaultFont"
-    style = ttk.Style()
-    style.configure("Big.TButton", font=(ui, 12, "bold"), padding=(14, 8))
-    style.configure("Title.TLabel", font=(ui, 18, "bold"))
-    style.configure("Sub.TLabel", font=(ui, 11))
-    style.configure("Step.TLabel", font=(ui, 11, "bold"))
-    style.configure("Treeview", rowheight=24)
-
-    head = ttk.Frame(root, padding=(16, 12, 16, 4))
+    head = ttk.Frame(root, padding=(16, 12, 16, 10), style="Header.TFrame")
     head.pack(fill="x")
-    ttk.Label(head, text="Katana Patch Converter", style="Title.TLabel").pack(anchor="w")
+    ttk.Label(head, text="Katana Patch Converter", style="HeaderTitle.TLabel").pack(anchor="w")
     ttk.Label(head, text="Turn patches made for the Katana MkII into patches your Gen 1 Katana can use",
-              style="Sub.TLabel").pack(anchor="w")
+              style="HeaderSub.TLabel").pack(anchor="w")
 
     steps = ttk.Frame(root, padding=(16, 8, 16, 0))
     steps.pack(fill="x")
@@ -1018,6 +1086,8 @@ def run_window(preselected=()):
     help_btn.pack(side="left", padx=8)
     close_btn = ttk.Button(bottom, text="Close")
     close_btn.pack(side="right")
+    theme_btn = ttk.Button(bottom)
+    theme_btn.pack(side="right", padx=8)
 
     panes = ttk.PanedWindow(root, orient="horizontal")
     panes.pack(fill="both", expand=True, padx=16, pady=(4, 8))
@@ -1166,6 +1236,12 @@ def run_window(preselected=()):
     def live_set(_event=None):
         open_live_set_window(root, settings)
 
+    def set_theme(name):
+        settings["theme"] = name
+        apply_theme(root, name)                              # also restyles an open live set window
+        other = "modern" if name == "xp" else "xp"
+        theme_btn.configure(text=THEMES[other], command=lambda: set_theme(other))
+
     def close(_event=None):
         settings["strict_panel"] = bool(strict_var.get())
         settings["geometry"] = root.geometry()
@@ -1184,6 +1260,7 @@ def run_window(preselected=()):
     root.bind("<F1>", lambda _e: help_btn.invoke())
     root.protocol("WM_DELETE_WINDOW", close)
 
+    set_theme(settings["theme"])
     show(HELP_TEXT)
     if preselected:
         set_files(list(preselected))
@@ -1357,6 +1434,7 @@ def open_live_set_window(parent, settings=None):
     ttk.Button(bottom, text="How does this work?",
                command=lambda: messagebox.showinfo("Live sets", LIVE_SET_HELP, parent=win)).pack(side="left", padx=8)
     ttk.Button(bottom, text="Close", command=win.destroy).pack(side="right")
+    apply_theme(win, state.get("theme", "modern"))
     refresh()
     return win, entries
 

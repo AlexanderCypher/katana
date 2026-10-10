@@ -31,7 +31,9 @@ python katana_to_gen1.py --cli "My Patch.tsl"      # text only, no window
 
 Your original files are never changed, and existing files are never overwritten.
 
-The app remembers the last folder you used, the **Gen 1 button style** choice and the window size. To keep these settings next to the program instead (for example on a USB stick), put an empty file named `portable.txt` in the same folder as the program.
+Click **Windows XP look** for a Windows XP style window (click **Modern look** to switch back).
+
+The app remembers the last folder you used, the **Gen 1 button style** choice, the look and the window size. To keep these settings next to the program instead (for example on a USB stick), put an empty file named `portable.txt` in the same folder as the program.
 
 ## Live sets for gigs
 

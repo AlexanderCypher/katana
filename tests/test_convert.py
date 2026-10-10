@@ -250,9 +250,13 @@ class Settings(unittest.TestCase):
 
     def test_round_trip_and_defaults(self):
         self.assertEqual(k.load_settings(), k.DEFAULT_SETTINGS)
-        k.save_settings({"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700", "x": 1})
+        k.save_settings({"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700", "theme": "xp",
+                         "x": 1})
         s = k.load_settings()
-        self.assertEqual(s, {"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700"})
+        self.assertEqual(s, {"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700",
+                             "theme": "xp"})
+        k.save_settings({"theme": "vaporwave"})
+        self.assertEqual(k.load_settings()["theme"], "modern")
         self.assertTrue(k.settings_path().startswith(self.tmp.name))
 
     def test_damaged_file_and_missing_folder(self):
@@ -262,6 +266,26 @@ class Settings(unittest.TestCase):
         self.assertEqual(k.load_settings(), k.DEFAULT_SETTINGS)
         k.save_settings({"last_dir": os.path.join(self.tmp.name, "gone")})
         self.assertIsNone(k.load_settings()["last_dir"])
+
+    def test_theme_switches_and_restores(self):
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+            root = tk.Tk()
+        except Exception:
+            self.skipTest("no display for tkinter")
+        try:
+            root.withdraw()
+            text = tk.Text(root)
+            native_bg, native_theme = text.cget("background"), ttk.Style(root).theme_use()
+            k.apply_theme(root, "xp")
+            self.assertEqual(ttk.Style(root).theme_use(), "clam")
+            self.assertEqual(root.cget("background"), k.XP["face"])
+            k.apply_theme(root, "modern")
+            self.assertEqual(ttk.Style(root).theme_use(), native_theme)
+            self.assertEqual(text.cget("background"), native_bg)
+        finally:
+            root.destroy()
 
     def test_portable_mode(self):
         open(os.path.join(self.tmp.name, "portable.txt"), "w").close()
