@@ -16,7 +16,7 @@ memory map. The script rebuilds that memory image, then copies every parameter i
 into a real Gen 1 patch (named parameters), translating values that differ between generations
 (amp voices, booster / effect types, colour slots, EQ, chain order, patch level ...).
 """
-import base64, copy, json, os, random, sys, zlib
+import base64, copy, json, os, queue, random, sys, threading, zlib
 
 TEMPLATE_B64 = "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"
 
@@ -597,8 +597,13 @@ def describe(res):
     return "\n".join(lines)
 
 
-def run_batch(files, out_dir=None):
-    results = [convert_file(f, out_dir) for f in files]
+def run_batch(files, out_dir=None, progress=None):
+    """progress(done, total) is called after each file, if given"""
+    results = []
+    for f in files:
+        results.append(convert_file(f, out_dir))
+        if progress:
+            progress(len(results), len(files))
     ok = sum(r.status == "ok" for r in results)
     return results, ok
 
@@ -711,11 +716,48 @@ def run_window(preselected=()):
             messagebox.showinfo("Folder", d)
 
     def convert():
+        # convert on a worker thread so the window keeps responding; tkinter is not
+        # thread-safe, so the worker only puts messages on a queue that the window polls
         global STRICT_PANEL
+        if state.get("busy"):
+            return
         STRICT_PANEL = bool(strict_var.get())
+        state["busy"] = True
+        go_btn.configure(state="disabled")
+        pick_btn.configure(state="disabled")
         show("Converting...\n", clear=True)
-        root.update_idletasks()
-        results, ok = run_batch(state["files"])
+        msgs = queue.Queue()
+        files = list(state["files"])
+
+        def work():
+            try:
+                msgs.put(("done", run_batch(files, progress=lambda d, t: msgs.put(("progress", d, t)))))
+            except Exception as e:                   # run_batch already catches per file
+                msgs.put(("failed", e))
+
+        threading.Thread(target=work, daemon=True).start()
+        root.after(50, poll, msgs)
+
+    def poll(msgs):
+        try:
+            while True:
+                m = msgs.get_nowait()
+                if m[0] == "progress":
+                    show(f"Converting... {m[1]} of {m[2]} file(s)\n", clear=True)
+                else:
+                    state["busy"] = False
+                    go_btn.configure(state="normal")
+                    pick_btn.configure(state="normal")
+                    if m[0] == "done":
+                        finish(*m[1])
+                    else:
+                        show(f"Something unexpected went wrong ({type(m[1]).__name__}: {m[1]}).\n",
+                             clear=True)
+                    return
+        except queue.Empty:
+            root.after(50, poll, msgs)
+
+    def finish(results, ok):
         show("\n\n".join(describe(r) for r in results), clear=True)
         done = [r for r in results if r.out_path]
         if done:
