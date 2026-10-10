@@ -41,13 +41,16 @@ After converting, every patch is listed. Lines starting with `*` are settings th
 | Contour / Solo EQ / second EQ | Gen 1 has no equivalent, so these are not applied. |
 | MkII-only booster | HM-2, Metal Core and Centa OD become the closest Gen 1 booster (Metal Zone, Metal DS, Blues Drive). |
 | Pedal Bend | On Gen 1 it lives in the Pedal FX slot, so it is moved there (needs an expression pedal). |
+| Hidden amp voice | The patch uses an amp type that is not one of the five panel voices. Gen 1 loads it, but it may not be the same voice as on the MkII. |
+| Reverb not in the menu | Ambience and Hall 1 work on Gen 1 but are not listed in BOSS TONE STUDIO, so the editor may show the reverb type oddly. |
+| Pedal FX function | The MkII "Pedal FX" pedal setting becomes Gen 1's "Pedal FX / Foot Volume". |
 | Both effects ON | On Gen 1, Booster/MOD and Delay/FX share a button. Both stay on by default, which is closest to the original sound. Tick **Gen 1 button style** to keep only one. |
 
 ## What is converted
 
-Patch name, booster, amp (type, gain, EQ, level and more), EQ, MOD and FX effects (including Wah 95E, DC-30 and Heavy Octave), Pedal FX, both delays, reverb, noise suppressor, send/return, foot volume, patch level, effect order and the green/red/yellow effect slots.
+Patch name, booster, amp (type, gain, EQ, level and more), EQ, MOD and FX effects (including Wah 95E, DC-30 and Heavy Octave), Pedal FX, both delays, reverb, noise suppressor, send/return, foot volume, patch level, effect order, the green/red/yellow effect slots, and expression pedal / GA-FC pedal and knob assignments.
 
-**Not converted:** Variation amp voicing, Contour, Solo EQ, the second EQ, Cab Resonance, the MkII-only boosters, and expression pedal / GA-FC assignments.
+**Not converted:** Variation amp voicing, Contour, Solo EQ, the second EQ, Cab Resonance, the MkII-only boosters, and Pedal Bend pedal assignments.
 
 ## Known limitations
 

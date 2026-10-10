@@ -30,7 +30,14 @@ BLOCKS = {                                   # TSL block -> (page, offset) where
     "UserPatch%Fx(1)": (1, 0x00), "UserPatch%Fx(2)": (3, 0x00),
     "UserPatch%Delay(1)": (5, 0x00), "UserPatch%Delay(2)": (5, 0x20),
     "UserPatch%Patch_1": (5, 0x40), "UserPatch%Patch_2": (6, 0x20), "UserPatch%Status": (6, 0x50),
+    "UserPatch%KnobAsgn": (7, 0x00),
+    "UserPatch%ExpPedalAsgn": (8, 0x00), "UserPatch%ExpPedalAsgnMinMax": (8, 0x30),
+    "UserPatch%GafcExp1Asgn": (9, 0x00), "UserPatch%GafcExp1AsgnMinMax": (9, 0x30),
+    "UserPatch%GafcExp2Asgn": (10, 0x00), "UserPatch%GafcExp2AsgnMinMax": (10, 0x30),
 }
+OPTIONAL_BLOCKS = {"UserPatch%Eq(2)", "UserPatch%Status", "UserPatch%KnobAsgn", "UserPatch%ExpPedalAsgn",
+                   "UserPatch%ExpPedalAsgnMinMax", "UserPatch%GafcExp1Asgn", "UserPatch%GafcExp1AsgnMinMax",
+                   "UserPatch%GafcExp2Asgn", "UserPatch%GafcExp2AsgnMinMax"}
 
 
 def A(page, off):
@@ -42,7 +49,7 @@ def build_image(blocks, log):
     for name, (pg, off) in BLOCKS.items():
         data = blocks.get(name)
         if data is None:
-            if name not in ("UserPatch%Eq(2)", "UserPatch%Status"):
+            if name not in OPTIONAL_BLOCKS:
                 log.append(f"source has no {name} block - those settings left at template defaults")
             continue
         for i, x in enumerate(data):
@@ -183,6 +190,30 @@ PEDAL_FX_LAYOUT = ["pedal_fx_on_off", "pedal_fx_type", "pedal_fx_wah_type", "ped
 
 CAB_RESONANCE = {1: "Modern", 2: "Deep"}
 
+GEN1_PANEL_AMPS = {1, 8, 11, 23, 24}                        # ACOUSTIC, CLEAN, CRUNCH, BROWN, LEAD
+REVERB_NOT_IN_MENU = {0: "Ambience", 2: "Hall 1"}           # in the Gen 1 engine, not in the BTS 4.0 menu
+
+# Expression pedal / GA-FC assignments. Same effect order on both generations (MkII midi.xml pages 7-10,
+# Gen 1 addressmap_gt.json): byte i of the "Asgn" block picks which parameter of effect i the pedal moves.
+# MkII has one more entry (0x21 Pedal Bend), which Gen 1 lacks.
+ASSIGN_EFFECTS = ["booster", "delay", "reverb", "chorus", "flanger", "phaser", "uni_v", "tremolo", "vibrato",
+                  "rotary", "ring_mod", "slow_gear", "slicer", "comp", "limiter", "t_wah", "auto_wah",
+                  "pedal_wah", "geq", "peq", "guitar_sim", "ac_guitar_sim", "ac_processor", "wave_synth",
+                  "octave", "pitch_shifter", "harmonist", "humanizer", "evh_phaser", "evh_flanger", "evh_wah",
+                  "dc30", "heavy_oct"]
+ASSIGN_WIDE = {"delay", "reverb", "pitch_shifter", "harmonist", "dc30"}   # min/max stored in 2 bytes each
+ASSIGN_MINMAX = [(f"{e}_{m}", 2 if e in ASSIGN_WIDE else 1) for e in ASSIGN_EFFECTS for m in ("min", "max")]
+# MkII page -> Gen 1 key prefix (page 7 KnobAsgn has no min/max)
+ASSIGN_PAGES = {8: "exp_pedal_assign_", 9: "gafc_exp1_assign_", 10: "gafc_exp2_assign_"}
+# Pedal Function (MkII 6:0x3E-0x40): 0 Volume, 1 Foot Volume, 2 Pedal FX/FV, 3 Booster, 4 MOD, 5 Delay 1,
+# 6 FX, 7 Delay 2, 8 Reverb (the last four are "assign" modes) - same order in BTS 4.0 for Gen 1.
+# 9 "Pedal FX" (without foot volume) is MkII-only.
+PEDAL_FUNCTIONS = {"pedal_function_exp_pedal": (0x3E, "EXP pedal"),
+                   "pedal_function_gafc_exp1": (0x3F, "GA-FC EXP 1"),
+                   "pedal_function_gafc_exp2": (0x40, "GA-FC EXP 2")}
+PEDAL_FUNCTION_MAX = 8
+PEDAL_FUNCTION_FALLBACK = 2
+
 # Chain block ids (same on both generations)
 CS, LOOP, AMP, CH_B, EQ1, MOD, FX, DLY1, DLY2, REV, EQ2, PDL, FV, NS, NS2, BST, USB, SPLIT, CAB, MERGE = range(20)
 CHAIN_MOVABLE = {PDL, BST, MOD, FX, EQ1, AMP, NS, FV, LOOP, DLY1, DLY2, REV}
@@ -310,6 +341,9 @@ def convert_patch(blocks, tpl_patch):
     elif at > 27:
         c.put("preamp_a_type", AMP_UNKNOWN_FALLBACK)
         c.note(f"Amp id {at} is not a Gen 1 amp; used CRUNCH - check the amp type")
+    elif at not in GEN1_PANEL_AMPS:
+        c.note(f"Amp type {AMP_NAMES.get(at, f'id {at}')} is a hidden amp voice (not one of the five on the Gen 1 "
+               f"panel); Gen 1 loads it, but it may not be the same voice as on the MkII - check it")
     if p["preamp_a_gain"] > 120:
         c.note(f"Amp gain {p['preamp_a_gain']} is above the Gen 1 maximum; limited to 120")
         c.put("preamp_a_gain", 120)
@@ -372,6 +406,9 @@ def convert_patch(blocks, tpl_patch):
             c.put("reverb_" + name_, v)
         else:
             c.put2("reverb_" + name_, hi, lo)
+    if g(5, 0x40) and g(5, 0x41) in REVERB_NOT_IN_MENU:
+        c.note(f"Reverb type {REVERB_NOT_IN_MENU[g(5, 0x41)]} is not in the Gen 1 editor's menu; kept as is - "
+               f"check the reverb in BOSS TONE STUDIO")
 
     # ---- pedal FX (wah / pedal bend / wah 95E, worked by an expression pedal) ----------
     for i, key in enumerate(PEDAL_FX_LAYOUT):
@@ -444,6 +481,34 @@ def convert_patch(blocks, tpl_patch):
                (": FX switched off (--strict-panel)" if STRICT_PANEL else ": both kept on"))
         if STRICT_PANEL:
             c.put("fx2_on_off", 0)
+
+    # ---- expression pedal / GA-FC assignments and the panel knob assignment -------------
+    has = lambda b: b in blocks
+    for key, (off, label) in (PEDAL_FUNCTIONS.items() if has("UserPatch%Patch_2") else ()):
+        f = g(6, off)
+        if f > PEDAL_FUNCTION_MAX:
+            f = PEDAL_FUNCTION_FALLBACK
+            c.note(f"{label} function 'Pedal FX' is MkII-only; set to Pedal FX / Foot Volume")
+        c.put(key, f)
+    if has("UserPatch%KnobAsgn"):
+        for i, e in enumerate(ASSIGN_EFFECTS):
+            c.put("knob_assign_" + e, g(7, i))
+    for page, pre in ASSIGN_PAGES.items():
+        name_ = {8: "ExpPedal", 9: "GafcExp1", 10: "GafcExp2"}[page]
+        if has(f"UserPatch%{name_}Asgn"):
+            for i, e in enumerate(ASSIGN_EFFECTS):
+                c.put(pre + e, g(page, i))
+        if has(f"UserPatch%{name_}AsgnMinMax"):
+            vals = list(read_seq(mem, page, 0x30, ASSIGN_MINMAX))
+            for lo_max in zip(vals[::2], vals[1::2]):
+                # older MkII files hold 0/0 for effects their firmware did not have yet - keep Gen 1's default range
+                if lo_max[0][1] == lo_max[1][1] == 0:
+                    continue
+                for k2, x, h, l in lo_max:
+                    if h is None:
+                        c.put(pre + k2, x)
+                    else:
+                        c.put2(pre + k2, h, l)
 
     # ---- things that cannot be carried over ---------------------------------------------
     if g(6, 0x16):

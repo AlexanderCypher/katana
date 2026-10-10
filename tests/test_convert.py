@@ -89,6 +89,42 @@ class Synthetic(unittest.TestCase):
         self.assertEqual(P["params"]["od_ds_type"], 18)        # HM-2 -> Metal Zone
         self.assertEqual(P["patchNo"], "A: CH1")
 
+    def test_pedal_assignments_are_copied(self):
+        data = fake_mk2()
+        blocks = data["data"][0][0]["paramSet"]
+        blocks["UserPatch%Patch_2"][0x1E] = "05"              # 6:0x3E EXP pedal -> Delay 1 (assign)
+        blocks["UserPatch%Patch_2"][0x20] = "09"              # 6:0x40 GA-FC EXP2 -> Pedal FX (MkII-only)
+        asgn = ["00"] * 34
+        asgn[1] = "01"                                        # Delay: Delay Time
+        blocks["UserPatch%ExpPedalAsgn"] = asgn
+        mm = ["00"] * 78
+        mm[2:6] = ["00", "0A", "03", "10"]                    # Delay min 10, max 3*128+16 = 400
+        mm[0x0A:0x0C] = ["05", "50"]                          # Chorus min 5, max 80
+        blocks["UserPatch%ExpPedalAsgnMinMax"] = mm
+        blocks["UserPatch%KnobAsgn"] = ["00", "03"] + ["00"] * 32   # Delay knob: High Cut
+        r = k.convert_file(self.write("e.tsl", data))
+        P = load(r.out_path)["patchList"][0]
+        check_patch(self, P, "pedal")
+        p = P["params"]
+        self.assertEqual(p["pedal_function_exp_pedal"], 5)
+        self.assertEqual(p["pedal_function_gafc_exp2"], 2)
+        self.assertEqual(p["exp_pedal_assign_delay"], 1)
+        self.assertEqual((p["exp_pedal_assign_delay_min"], p["exp_pedal_assign_delay_max"]), (10, 400))
+        self.assertEqual((p["exp_pedal_assign_chorus_min"], p["exp_pedal_assign_chorus_max"]), (5, 80))
+        self.assertEqual(p["exp_pedal_assign_booster_max"], 100)  # 0/0 in the file keeps the Gen 1 default
+        self.assertEqual(p["knob_assign_delay"], 3)
+        self.assertTrue(any("GA-FC EXP 2" in n for _, notes in r.patches for n in notes))
+
+    def test_hidden_amp_and_unlisted_reverb_get_a_note(self):
+        data = fake_mk2(amp=19)
+        blocks = data["data"][0][0]["paramSet"]
+        blocks["UserPatch%Patch_1"][0:2] = ["01", "02"]       # 5:0x40 reverb on, type Hall 1
+        r = k.convert_file(self.write("h.tsl", data))
+        notes = " ".join(n for _, ns in r.patches for n in ns)
+        self.assertIn("hidden amp voice", notes)
+        self.assertIn("Reverb type Hall 1", notes)
+        self.assertEqual(load(r.out_path)["patchList"][0]["params"]["preamp_a_type"], 19)
+
     def test_every_chain_pattern_gives_full_order(self):
         for pat in range(8):                                    # 7 is unknown on purpose
             r = k.convert_file(self.write(f"c{pat}.tsl", fake_mk2(chain_pattern=pat)))
