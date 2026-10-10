@@ -148,6 +148,13 @@ class Synthetic(unittest.TestCase):
         done = self.write("x (Gen1).tsl", fake_mk2())
         self.assertEqual(k.convert_file(done).status, "skipped")
 
+    def test_batch_reports_progress(self):
+        files = [self.write(f"p{i}.tsl", fake_mk2()) for i in range(3)]
+        seen = []
+        results, ok = k.run_batch(files, progress=lambda d, t: seen.append((d, t)))
+        self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
+        self.assertEqual(ok, 3)
+
     def test_missing_blocks_are_skipped_not_guessed(self):
         data = fake_mk2()
         del data["data"][0][0]["paramSet"]["UserPatch%Fx(2)"]
@@ -222,6 +229,52 @@ class RealGen1Patches(unittest.TestCase):
         self.assertEqual(len(data["patchList"]), len(entries))
         for P, e in zip(data["patchList"], entries):
             self.assertEqual(P["params"], e.patch["params"])        # settings untouched
+
+
+class Settings(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = {k_: os.environ.get(k_) for k_ in ("APPDATA", "XDG_CONFIG_HOME")}
+        os.environ["APPDATA"] = os.environ["XDG_CONFIG_HOME"] = self.tmp.name
+        self.folder = k.app_folder
+        k.app_folder = lambda: self.tmp.name
+
+    def tearDown(self):
+        k.app_folder = self.folder
+        for k_, v in self.env.items():
+            if v is None:
+                os.environ.pop(k_, None)
+            else:
+                os.environ[k_] = v
+        self.tmp.cleanup()
+
+    def test_round_trip_and_defaults(self):
+        self.assertEqual(k.load_settings(), k.DEFAULT_SETTINGS)
+        k.save_settings({"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700", "x": 1})
+        s = k.load_settings()
+        self.assertEqual(s, {"last_dir": self.tmp.name, "strict_panel": True, "geometry": "900x700"})
+        self.assertTrue(k.settings_path().startswith(self.tmp.name))
+
+    def test_damaged_file_and_missing_folder(self):
+        os.makedirs(os.path.dirname(k.settings_path()), exist_ok=True)
+        with open(k.settings_path(), "w") as fh:
+            fh.write("{not json")
+        self.assertEqual(k.load_settings(), k.DEFAULT_SETTINGS)
+        k.save_settings({"last_dir": os.path.join(self.tmp.name, "gone")})
+        self.assertIsNone(k.load_settings()["last_dir"])
+
+    def test_portable_mode(self):
+        open(os.path.join(self.tmp.name, "portable.txt"), "w").close()
+        self.assertEqual(k.settings_path(), os.path.join(self.tmp.name, "katana_settings.json"))
+
+    def test_result_rows(self):
+        r = k.Result("a.tsl")
+        r.status, r.message, r.out_path = "ok", "Saved 2 patch(es).", "a (Gen1).tsl"
+        r.patches = [("ONE", ["note"]), ("TWO", [])]
+        rows = k.result_rows([r])
+        self.assertEqual([(p, label, st) for p, label, st, _ in rows],
+                         [(None, "a.tsl", "Converted - 1 note(s)"), (0, "ONE", "1 note(s)"), (0, "TWO", "OK")])
+        self.assertIn("* note", rows[1][3])
 
 
 class LiveSet(unittest.TestCase):

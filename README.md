@@ -16,10 +16,11 @@ Convert patch files made for the **BOSS Katana MkII** into patches a **Katana Ge
 ## How to use
 
 1. Open the converter. A window opens.
-2. Click **Choose patch files...** and pick one or more MkII `.tsl` files.
-3. Click **Convert to Gen 1**.
-4. Click **Open the folder with my new files**. Each new file ends in `(Gen1).tsl`.
-5. In BOSS TONE STUDIO, with your Gen 1 Katana connected, click **Import** and choose the `(Gen1).tsl` file.
+2. Click **Choose patch files...** (Ctrl+O) and pick one or more MkII `.tsl` files.
+3. Click **Convert to Gen 1** (Enter). A progress bar shows how far it has got.
+4. The results list shows each file and its patches. Click one to see its notes on the right.
+5. Click **Open the folder with my new files**. Each new file ends in `(Gen1).tsl`.
+6. In BOSS TONE STUDIO, with your Gen 1 Katana connected, click **Import** and choose the `(Gen1).tsl` file.
 
 You can also drag `.tsl` files onto the program, or convert from a terminal:
 
@@ -29,6 +30,8 @@ python katana_to_gen1.py --cli "My Patch.tsl"      # text only, no window
 ```
 
 Your original files are never changed, and existing files are never overwritten.
+
+The app remembers the last folder you used, the **Gen 1 button style** choice and the window size. To keep these settings next to the program instead (for example on a USB stick), put an empty file named `portable.txt` in the same folder as the program.
 
 ## Live sets for gigs
 
