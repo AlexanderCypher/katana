@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-katana_to_gen1.py  (v2)  -  convert BOSS Katana MkII .tsl patches to Katana Gen 1 (MkI) .tsl
+katana_to_gen1.py  -  convert BOSS Katana MkII .tsl patches to Katana Gen 1 (MkI) .tsl
 
 EASIEST WAY TO USE (this one file is all you need):
   Double-click it. A window opens: click "Choose patch files", click "Convert", done.
@@ -22,6 +22,7 @@ import base64, copy, json, os, queue, random, sys, threading, zlib
 
 TEMPLATE_B64 = "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"
 
+__version__ = "2.1.0"
 STRICT_PANEL = "--strict-panel" in sys.argv
 
 # --------------------------------------------------------------------------------------
@@ -847,77 +848,205 @@ def save_live_set(folder, name, entries, use_channels=True):
 # Simple window (tkinter ships with the normal Windows / Mac Python installer)
 # --------------------------------------------------------------------------------------
 HELP_TEXT = (
-    "1. Click 'Choose patch files' and pick the .tsl file(s) you downloaded for a Katana MkII.\n"
-    "2. Click 'Convert to Gen 1'.\n"
+    "1. Click 'Choose patch files' (Ctrl+O) and pick the .tsl file(s) you downloaded for a Katana MkII.\n"
+    "2. Click 'Convert to Gen 1' (Enter).\n"
     "3. Open BOSS TONE STUDIO, connect your Gen 1 Katana, click Import, and pick the new file "
     "that ends in (Gen1).tsl.\n\n"
-    "Lines marked * under a patch are things that cannot be copied exactly to Gen 1. "
-    "Those patches are still converted - listen to them and adjust to taste."
+    "Click a file or patch in the results to see its notes. Notes are things that cannot be copied "
+    "exactly to Gen 1. Those patches are still converted - listen to them and adjust to taste.\n\n"
+    "Ctrl+L opens the live set builder, F1 shows this help."
 )
+
+DEFAULT_SETTINGS = {"last_dir": None, "strict_panel": False, "geometry": None}
+
+
+def app_folder():
+    """folder of the running program (the .exe when frozen by PyInstaller)"""
+    return os.path.dirname(os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__))
+
+
+def settings_path():
+    """settings live next to the program when a file named portable.txt is there (portable use, e.g.
+    from a USB stick), otherwise in the user's settings folder"""
+    if os.path.exists(os.path.join(app_folder(), "portable.txt")):
+        return os.path.join(app_folder(), "katana_settings.json")
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "KatanaPatchConverter", "settings.json")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "katana-patch-converter", "settings.json")
+
+
+def load_settings():
+    s = dict(DEFAULT_SETTINGS)
+    try:
+        with open(settings_path(), encoding="utf-8") as fh:
+            saved = json.load(fh)
+        if isinstance(saved, dict):
+            s.update({k: v for k, v in saved.items() if k in DEFAULT_SETTINGS})
+    except Exception:                            # missing or damaged settings: use the defaults
+        pass
+    if s["last_dir"] and not os.path.isdir(str(s["last_dir"])):
+        s["last_dir"] = None
+    return s
+
+
+def save_settings(s):
+    try:
+        path = settings_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({k: s.get(k) for k in DEFAULT_SETTINGS}, fh, indent=1)
+    except Exception:                            # read-only folder etc. - not worth bothering the user
+        pass
+
+
+def enable_sharp_text():
+    """tell Windows the window handles high-DPI screens itself, so text is not blurry"""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+
+def make_icon(tk):
+    """a small amp icon drawn in code (no image files to ship)"""
+    img = tk.PhotoImage(width=32, height=32)
+    dark, grille, orange = "#202020", "#3a3a3a", "#f08c00"
+    img.put(dark, to=(2, 4, 30, 28))
+    img.put(orange, to=(2, 4, 30, 6))
+    img.put(grille, to=(5, 13, 27, 26))
+    for x in (8, 13, 18, 23):
+        img.put(orange, to=(x, 8, x + 2, 10))
+    return img
+
+
+def result_rows(results):
+    """rows for the results list: (parent row index or None, label, result column, details text)"""
+    rows = []
+    for r in results:
+        name = os.path.basename(r.source)
+        status = {"ok": "Converted", "skipped": "Skipped", "error": "Error"}[r.status]
+        n_notes = sum(len(n) for _, n in r.patches)
+        if r.status == "ok" and n_notes:
+            status += f" - {n_notes} note(s)"
+        details = [name, r.message]
+        if r.out_path:
+            details.append(f"New file: {os.path.normpath(r.out_path)}")
+        file_row = len(rows)
+        rows.append((None, name, status, "\n".join(details)))
+        for pname, notes in r.patches:
+            if any(n.startswith("SKIPPED") for n in notes):
+                pstatus = "Skipped"
+            else:
+                pstatus = f"{len(notes)} note(s)" if notes else "OK"
+            body = [f"* {n}" for n in notes] or ["Converted with nothing to point out."]
+            rows.append((file_row, pname, pstatus, "\n".join([pname, f"from {name}", ""] + body)))
+    return rows
 
 
 def run_window(preselected=()):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
+    enable_sharp_text()
+    settings = load_settings()
     root = tk.Tk()
-    root.title("Katana Patch Converter - MkII to Gen 1")
-    root.geometry("760x640")
-    root.minsize(640, 520)
-    state = {"files": [], "last_dir": None}
+    root.title(f"Katana Patch Converter {__version__} - MkII to Gen 1")
+    root.minsize(700, 560)
+    try:
+        root.geometry(settings["geometry"] or "860x680")
+    except tk.TclError:
+        root.geometry("860x680")
+    try:
+        root._icon = make_icon(tk)                             # keep a reference or Tk drops the image
+        root.iconphoto(True, root._icon)
+    except tk.TclError:
+        pass
+    state = {"files": [], "out_dir": None, "busy": False, "details": {}}
 
-    big = ("Segoe UI", 12)
-    ttk.Style().configure("Big.TButton", font=("Segoe UI", 12, "bold"), padding=8)
+    ui = "Segoe UI" if os.name == "nt" else "TkDefaultFont"
+    style = ttk.Style()
+    style.configure("Big.TButton", font=(ui, 12, "bold"), padding=(14, 8))
+    style.configure("Title.TLabel", font=(ui, 18, "bold"))
+    style.configure("Sub.TLabel", font=(ui, 11))
+    style.configure("Step.TLabel", font=(ui, 11, "bold"))
+    style.configure("Treeview", rowheight=24)
 
-    ttk.Label(root, text="Katana Patch Converter", font=("Segoe UI", 18, "bold")).pack(pady=(14, 0))
-    ttk.Label(root, text="Turn patches made for the Katana MkII into patches your Gen 1 Katana can use",
-              font=big, wraplength=700, justify="center").pack(pady=(2, 10))
+    head = ttk.Frame(root, padding=(16, 12, 16, 4))
+    head.pack(fill="x")
+    ttk.Label(head, text="Katana Patch Converter", style="Title.TLabel").pack(anchor="w")
+    ttk.Label(head, text="Turn patches made for the Katana MkII into patches your Gen 1 Katana can use",
+              style="Sub.TLabel").pack(anchor="w")
 
-    top = ttk.Frame(root)
-    top.pack(fill="x", padx=16)
-    ttk.Label(top, text="Step 1", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w")
-    pick_btn = ttk.Button(top, text="Choose patch files...", style="Big.TButton")
-    pick_btn.grid(row=0, column=1, padx=10, sticky="w")
+    steps = ttk.Frame(root, padding=(16, 8, 16, 0))
+    steps.pack(fill="x")
+    steps.columnconfigure(2, weight=1)
+    ttk.Label(steps, text="1", style="Step.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8))
+    pick_btn = ttk.Button(steps, text="Choose patch files...", style="Big.TButton")
+    pick_btn.grid(row=0, column=1, sticky="we", pady=3)
     files_var = tk.StringVar(value="No files chosen yet")
-    ttk.Label(top, textvariable=files_var, font=big, wraplength=420).grid(row=0, column=2, sticky="w")
+    ttk.Label(steps, textvariable=files_var, style="Sub.TLabel").grid(row=0, column=2, sticky="w", padx=12)
+    ttk.Label(steps, text="2", style="Step.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8))
+    go_btn = ttk.Button(steps, text="Convert to Gen 1", style="Big.TButton", state="disabled")
+    go_btn.grid(row=1, column=1, sticky="we", pady=3)
+    strict_var = tk.BooleanVar(value=bool(settings["strict_panel"]))
+    ttk.Checkbutton(steps, variable=strict_var, text="Gen 1 button style (only one effect per shared "
+                    "button)").grid(row=1, column=2, sticky="w", padx=12)
+    ttk.Label(steps, text="3", style="Step.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8))
+    ttk.Label(steps, text="Import the new (Gen1).tsl files into BOSS TONE STUDIO",
+              style="Sub.TLabel").grid(row=2, column=1, columnspan=2, sticky="w", pady=3)
 
-    mid = ttk.Frame(root)
-    mid.pack(fill="x", padx=16, pady=(10, 0))
-    ttk.Label(mid, text="Step 2", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w")
-    go_btn = ttk.Button(mid, text="Convert to Gen 1", style="Big.TButton", state="disabled")
-    go_btn.grid(row=0, column=1, padx=10, sticky="w")
-    strict_var = tk.BooleanVar(value=False)
-    ttk.Checkbutton(mid, variable=strict_var,
-                    text="Gen 1 button style (only one effect per shared button)").grid(row=0, column=2, sticky="w")
+    prog_row = ttk.Frame(root, padding=(16, 8, 16, 4))
+    prog_row.pack(fill="x")
+    progress = ttk.Progressbar(prog_row, mode="determinate")
+    progress.pack(fill="x")
+    status_var = tk.StringVar()
+    ttk.Label(prog_row, textvariable=status_var).pack(anchor="w", pady=(4, 0))
 
-    ttk.Label(root, text="Step 3: import the new files into BOSS TONE STUDIO (see 'How do I use this?')",
-              font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=16, pady=(10, 2))
-
-    box = ttk.Frame(root)
-    box.pack(fill="both", expand=True, padx=16, pady=(0, 6))
-    txt = tk.Text(box, wrap="word", font=("Consolas", 10), state="disabled", height=14)
-    sb = ttk.Scrollbar(box, command=txt.yview)
-    txt.configure(yscrollcommand=sb.set)
-    sb.pack(side="right", fill="y")
-    txt.pack(side="left", fill="both", expand=True)
-
-    def show(text, clear=False):
-        txt.configure(state="normal")
-        if clear:
-            txt.delete("1.0", "end")
-        txt.insert("end", text)
-        txt.configure(state="disabled")
-        txt.see("end")
-
-    bottom = ttk.Frame(root)
-    bottom.pack(fill="x", padx=16, pady=(0, 14))
+    bottom = ttk.Frame(root, padding=(16, 0, 16, 14))
+    bottom.pack(side="bottom", fill="x")
     open_btn = ttk.Button(bottom, text="Open the folder with my new files", state="disabled")
     open_btn.pack(side="left")
-    ttk.Button(bottom, text="Build a live set...",
-               command=lambda: open_live_set_window(root)).pack(side="left", padx=(8, 0))
-    ttk.Button(bottom, text="How do I use this?",
-               command=lambda: messagebox.showinfo("How to use", HELP_TEXT)).pack(side="left", padx=8)
-    ttk.Button(bottom, text="Close", command=root.destroy).pack(side="right")
+    live_btn = ttk.Button(bottom, text="Build a live set...")
+    live_btn.pack(side="left", padx=(8, 0))
+    help_btn = ttk.Button(bottom, text="How do I use this?",
+                          command=lambda: messagebox.showinfo("How to use", HELP_TEXT, parent=root))
+    help_btn.pack(side="left", padx=8)
+    close_btn = ttk.Button(bottom, text="Close")
+    close_btn.pack(side="right")
+
+    panes = ttk.PanedWindow(root, orient="horizontal")
+    panes.pack(fill="both", expand=True, padx=16, pady=(4, 8))
+    left = ttk.Frame(panes)
+    tree = ttk.Treeview(left, columns=("status",), selectmode="browse")
+    tree.heading("#0", text="File / patch")
+    tree.heading("status", text="Result")
+    tree.column("#0", width=300, stretch=True)
+    tree.column("status", width=150, stretch=False)
+    tsb = ttk.Scrollbar(left, command=tree.yview)
+    tree.configure(yscrollcommand=tsb.set)
+    tree.pack(side="left", fill="both", expand=True)
+    tsb.pack(side="left", fill="y")
+    tree.tag_configure("error", foreground="#b00020")
+    tree.tag_configure("notes", foreground="#8a5a00")
+    right = ttk.Frame(panes)
+    txt = tk.Text(right, wrap="word", font=("Consolas", 10), state="disabled", width=40, padx=8, pady=6)
+    xsb = ttk.Scrollbar(right, command=txt.yview)
+    txt.configure(yscrollcommand=xsb.set)
+    txt.pack(side="left", fill="both", expand=True)
+    xsb.pack(side="left", fill="y")
+    panes.add(left, weight=3)
+    panes.add(right, weight=2)
+
+    def show(text):
+        txt.configure(state="normal")
+        txt.delete("1.0", "end")
+        txt.insert("end", text)
+        txt.configure(state="disabled")
 
     def set_files(files):
         state["files"] = [f for f in files if f]
@@ -927,19 +1056,22 @@ def run_window(preselected=()):
             go_btn.configure(state="disabled")
         else:
             names = ", ".join(os.path.basename(f) for f in state["files"][:3])
-            files_var.set(f"{n} file(s) chosen: {names}" + (" ..." if n > 3 else ""))
+            files_var.set(f"{n} file(s): {names}" + (" ..." if n > 3 else ""))
             go_btn.configure(state="normal")
+            settings["last_dir"] = os.path.dirname(os.path.abspath(state["files"][0]))
+        status_var.set("Ready - click 'Convert to Gen 1' or press Enter." if n else "")
 
-    def choose():
+    def choose(_event=None):
+        if state["busy"]:
+            return
         files = filedialog.askopenfilenames(
-            title="Choose Katana MkII patch file(s)",
+            parent=root, title="Choose Katana MkII patch file(s)", initialdir=settings["last_dir"],
             filetypes=[("Katana patch files", "*.tsl"), ("All files", "*.*")])
         if files:
             set_files(list(files))
-            show("Ready. Click 'Convert to Gen 1'.\n", clear=True)
 
     def open_folder():
-        d = state["last_dir"]
+        d = state["out_dir"]
         if not d:
             return
         try:
@@ -950,21 +1082,24 @@ def run_window(preselected=()):
             else:
                 os.system(f'xdg-open "{d}" >/dev/null 2>&1 &')
         except Exception:
-            messagebox.showinfo("Folder", d)
+            messagebox.showinfo("Folder", d, parent=root)
 
-    def convert():
+    def convert(_event=None):
         # convert on a worker thread so the window keeps responding; tkinter is not
         # thread-safe, so the worker only puts messages on a queue that the window polls
         global STRICT_PANEL
-        if state.get("busy"):
+        if state["busy"] or not state["files"]:
             return
         STRICT_PANEL = bool(strict_var.get())
         state["busy"] = True
         go_btn.configure(state="disabled")
         pick_btn.configure(state="disabled")
-        show("Converting...\n", clear=True)
-        msgs = queue.Queue()
+        tree.delete(*tree.get_children())
+        show("")
         files = list(state["files"])
+        progress.configure(maximum=len(files), value=0)
+        status_var.set(f"Converting... 0 of {len(files)} file(s)")
+        msgs = queue.Queue()
 
         def work():
             try:
@@ -980,36 +1115,76 @@ def run_window(preselected=()):
             while True:
                 m = msgs.get_nowait()
                 if m[0] == "progress":
-                    show(f"Converting... {m[1]} of {m[2]} file(s)\n", clear=True)
+                    progress.configure(value=m[1])
+                    status_var.set(f"Converting... {m[1]} of {m[2]} file(s)")
+                    continue
+                state["busy"] = False
+                go_btn.configure(state="normal")
+                pick_btn.configure(state="normal")
+                if m[0] == "done":
+                    finish(*m[1])
                 else:
-                    state["busy"] = False
-                    go_btn.configure(state="normal")
-                    pick_btn.configure(state="normal")
-                    if m[0] == "done":
-                        finish(*m[1])
-                    else:
-                        show(f"Something unexpected went wrong ({type(m[1]).__name__}: {m[1]}).\n",
-                             clear=True)
-                    return
+                    status_var.set(f"Something unexpected went wrong ({type(m[1]).__name__}: {m[1]}).")
+                return
         except queue.Empty:
             root.after(50, poll, msgs)
 
     def finish(results, ok):
-        show("\n\n".join(describe(r) for r in results), clear=True)
+        state["details"] = {}
+        ids = []
+        first_flagged = None
+        for parent, label, status, text in result_rows(results):
+            if status.startswith(("Error", "Skipped")):
+                tag = "error"
+            elif "note" in status:
+                tag = "notes"
+            else:
+                tag = ""
+            iid = tree.insert(ids[parent] if parent is not None else "", "end", text=label,
+                              values=(status,), open=True, tags=(tag,) if tag else ())
+            ids.append(iid)
+            state["details"][iid] = text
+            if first_flagged is None and tag and (parent is not None or tag == "error"):
+                first_flagged = iid
         done = [r for r in results if r.out_path]
         if done:
-            state["last_dir"] = os.path.dirname(os.path.abspath(done[-1].out_path))
+            state["out_dir"] = os.path.dirname(os.path.abspath(done[-1].out_path))
             open_btn.configure(state="normal")
-            show(f"\n\nDone: {ok} of {len(results)} file(s) converted. "
-                 f"Next: import the (Gen1).tsl file(s) into BOSS TONE STUDIO.\n")
+            status_var.set(f"Done: {ok} of {len(results)} file(s) converted. "
+                           f"Next: import the (Gen1).tsl file(s) into BOSS TONE STUDIO.")
         else:
-            show("\n\nNothing was converted - see the messages above.\n")
+            status_var.set("Nothing was converted - click a file to see why.")
+        pick = first_flagged or (ids[0] if ids else None)
+        if pick:
+            tree.selection_set(pick)
+            tree.see(pick)
+
+    def on_select(_event=None):
+        sel = tree.selection()
+        show(state["details"].get(sel[0], "") if sel else "")
+
+    def live_set(_event=None):
+        open_live_set_window(root, settings)
+
+    def close(_event=None):
+        settings["strict_panel"] = bool(strict_var.get())
+        settings["geometry"] = root.geometry()
+        save_settings(settings)
+        root.destroy()
 
     pick_btn.configure(command=choose)
     go_btn.configure(command=convert)
     open_btn.configure(command=open_folder)
+    live_btn.configure(command=live_set)
+    close_btn.configure(command=close)
+    tree.bind("<<TreeviewSelect>>", on_select)
+    root.bind("<Control-o>", choose)
+    root.bind("<Return>", convert)
+    root.bind("<Control-l>", live_set)
+    root.bind("<F1>", lambda _e: help_btn.invoke())
+    root.protocol("WM_DELETE_WINDOW", close)
 
-    show(HELP_TEXT + "\n", clear=True)
+    show(HELP_TEXT)
     if preselected:
         set_files(list(preselected))
         root.after(200, convert)
@@ -1030,7 +1205,7 @@ LIVE_SET_HELP = (
 )
 
 
-def open_live_set_window(parent):
+def open_live_set_window(parent, settings=None):
     import tkinter as tk
     from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -1039,7 +1214,7 @@ def open_live_set_window(parent):
     win.geometry("820x620")
     win.minsize(680, 480)
     entries = []
-    state = {"last_dir": None}
+    state = settings if settings is not None else {"last_dir": None}   # shares last_dir
 
     head = ttk.Frame(win)
     head.pack(fill="x", padx=16, pady=(14, 6))
@@ -1177,7 +1352,7 @@ def open_live_set_window(parent):
     lb.bind("<Alt-Down>", lambda _e: move(1))
 
     bottom = ttk.Frame(win)
-    bottom.pack(fill="x", padx=16, pady=(0, 14))
+    bottom.pack(side="bottom", fill="x", padx=16, pady=(0, 14), before=mid)   # never pushed off screen
     ttk.Button(bottom, text="Save live set", command=save).pack(side="left")
     ttk.Button(bottom, text="How does this work?",
                command=lambda: messagebox.showinfo("Live sets", LIVE_SET_HELP, parent=win)).pack(side="left", padx=8)
@@ -1225,6 +1400,9 @@ def run_text_mode(files):
 
 def main():
     args = sys.argv[1:]
+    if "--version" in args:
+        print(f"Katana Patch Converter {__version__}")
+        return
     if "--live-set" in args:
         i = args.index("--live-set")
         if i + 1 >= len(args):
